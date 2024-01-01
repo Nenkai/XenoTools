@@ -1,1 +1,6 @@
 # XenoTools
+
+Work-in-Progress set of libraries/tools for the Xenoblade Chronicles series.
+
+## XenoTools.BinaryData
+BDAT (BinaryData) reader/serializer/maker (for a future tool for exporting/importing such files from or to SQLite)
