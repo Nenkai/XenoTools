@@ -8,6 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\XenoTools.BinaryData\XenoTools.BinaryData.csproj" />
     <ProjectReference Include="..\XenoTools\XenoTools.BinaryData.csproj" />
   </ItemGroup>
 
