@@ -1,0 +1,1 @@
+These are not part of the original implementation, but are used with `BinaryDataFile::GetAllIDs` & `BinaryDataFileWriter`.
