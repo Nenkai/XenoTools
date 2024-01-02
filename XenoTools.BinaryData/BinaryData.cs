@@ -9,7 +9,7 @@ using Syroot.BinaryData.Memory;
 
 namespace XenoTools.BinaryData;
 
-public class BinaryData
+public class Bdat
 {
     public List<BinaryDataFile> Files { get; set; } = new();
 

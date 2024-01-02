@@ -11,7 +11,5 @@ namespace XenoTools.BinaryData.ID
     {
         public string Name { get; set; }
         public BinaryDataMemberType Type { get; set; }
-
-        public abstract uint GetSize();
     }
 }

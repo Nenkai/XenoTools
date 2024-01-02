@@ -15,6 +15,7 @@ namespace XenoTools.BinaryData
 {
     public class BinaryDataFileWriter
     {
+        private List<BinaryDataIDMember> _memberLayout;
         private List<BinaryDataID> IDs;
         private uint _idSize;
 
@@ -30,10 +31,11 @@ namespace XenoTools.BinaryData
         private Dictionary<string, uint> _stringOffsets = new();
         private long _currentStringOffset;
 
-        public BinaryDataFileWriter(string name, ushort idTop, List<BinaryDataID> ids)
+        public BinaryDataFileWriter(string name, ushort idTop, List<BinaryDataIDMember> memberLayout, List<BinaryDataID> ids)
         {
             _name = name;
             _idTop = idTop;
+            _memberLayout = memberLayout;
             IDs = ids;
         }
 
@@ -42,34 +44,35 @@ namespace XenoTools.BinaryData
             if (IDs.Count <= 0)
                 return;
 
-            _idSize = MiscUtils.AlignValue(IDs[0].GetSize(), 0x04);
+            int _idSize = 0;
+            for (int i = 0; i < _memberLayout.Count; i++)
+                _idSize += _memberLayout[i].GetSize();
+            _idSize = (int)MiscUtils.AlignValue((uint)_idSize, 0x04);
 
             ushort offset = 0;
 
-            for (int i = 0; i < IDs[0].Values.Count; i++)
+            for (int i = 0; i < _memberLayout.Count; i++)
             {
-                BinaryDataValue value = IDs[0].Values[i];
+                BinaryDataIDMember memberId = _memberLayout[i];
 
                 BinaryDataMember dataMember = new BinaryDataMember();
-                dataMember.Name = value.Name;
+                dataMember.Name = memberId.Name;
 
                 BinaryDataMemberTypeDef typeDef = new BinaryDataMemberTypeDef();
-                typeDef.Type = value.Type;
+                typeDef.Type = memberId.Type;
 
                 if (typeDef.Type == BinaryDataMemberType.Variable)
                 {
-                    BinaryDataVariable variable = value as BinaryDataVariable;
-                    typeDef.NumericType = variable.NumericType;
+                    typeDef.NumericType = memberId.NumericType;
                     typeDef.OffsetInId = offset;
-                    offset += (ushort)value.GetSize();
+                    offset += (ushort)memberId.GetSize();
                 }
                 else if (typeDef.Type == BinaryDataMemberType.Array)
                 {
-                    BinaryDataArray variable = value as BinaryDataArray;
-                    typeDef.NumericType = variable.NumericType;
-                    typeDef.ArrayLength = (ushort)variable.Values.Count;
+                    typeDef.NumericType = memberId.NumericType;
+                    typeDef.ArrayLength = (ushort)memberId.ArrayLength;
                     typeDef.OffsetInId = offset;
-                    offset += (ushort)(value.GetSize() * variable.Values.Count);
+                    offset += (ushort)memberId.GetSize();
                 }
                 else if (typeDef.Type == BinaryDataMemberType.Flag)
                 {

@@ -659,22 +659,35 @@ public class BinaryDataFile
     /// <param name="bs"></param>
     public void Write(BinaryStream bs)
     {
-        var ids = GetAllIds();
-        var writer = new BinaryDataFileWriter(Name, IdTop, ids);
+        var bdatFileLayoutAndID = GetLayoutAndIDs();
+        var writer = new BinaryDataFileWriter(Name, IdTop, bdatFileLayoutAndID.Layout, bdatFileLayoutAndID.IDs);
         writer.Write(bs);
     }
 
     // Non original, but an utility to grab every id and linked data together
-    public List<BinaryDataID> GetAllIds()
+    public (List<BinaryDataIDMember> Layout, List<BinaryDataID> IDs) GetLayoutAndIDs()
     {
         int idTop = GetIdTop();
         int idCount = GetIdCount();
 
-        List<BinaryDataID> ids = new List<BinaryDataID>();
+        List<BinaryDataIDMember> members = new List<BinaryDataIDMember>();
+        for (int i = 0; i< Members.Count; i++)
+        {
+            BinaryDataMember bdatFileMember = Members[i];
+            
+            var idMember = new BinaryDataIDMember();
+            idMember.Name = bdatFileMember.Name;
+            idMember.Type = bdatFileMember.TypeDef.Type;
+            idMember.NumericType = bdatFileMember.TypeDef.NumericType;
+            idMember.ArrayLength = bdatFileMember.TypeDef.ArrayLength;
+            members.Add(idMember);
+        }
 
+        List<BinaryDataID> ids = new List<BinaryDataID>();
         for (int idIdx = 0; idIdx < idCount; idIdx++)
         {
             BinaryDataID id = new BinaryDataID();
+            id.IDNumber = IdTop + idIdx;
 
             int numMembers = GetMemberSize();
             for (int memberIndex = 0; memberIndex < numMembers; memberIndex++)
@@ -708,6 +721,6 @@ public class BinaryDataFile
             ids.Add(id);
         }
 
-        return ids;
+        return (members, ids);
     }
 }
