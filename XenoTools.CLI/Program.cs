@@ -19,9 +19,10 @@ namespace XenoTools.CLI
             Console.WriteLine("- https://github.com/Nenkai");
             Console.WriteLine("-----------------------------------------");
 
-            var p = Parser.Default.ParseArguments<SQLiteExportVerbs>(args);
+            var p = Parser.Default.ParseArguments<SQLiteExportVerbs, SQLiteImportVerbs>(args);
 
             p.WithParsed<SQLiteExportVerbs>(Export)
+             .WithParsed<SQLiteImportVerbs>(Import)
              .WithNotParsed(HandleNotParsedArgs);
 
         }
@@ -52,19 +53,34 @@ namespace XenoTools.CLI
             }
         }
 
+        public static void Import(SQLiteImportVerbs importVerbs)
+        {
+
+        }
+
         public static void HandleNotParsedArgs(IEnumerable<Error> errors)
         {
 
         }
     }
 
-    [Verb("sqlite-export", HelpText = "Export bdat to a SQLite file.")]
+    [Verb("bdat-to-sqlite", HelpText = "Export bdat to a SQLite file.")]
     public class SQLiteExportVerbs
     {
         [Option('i', "input", Required = true, HelpText = "Input bdat file.")]
         public string InputPath { get; set; }
 
         [Option('o', "output", HelpText = "Output sqlite file.")]
+        public string OutputPath { get; set; }
+    }
+
+    [Verb("sqlite-to-bdat", HelpText = "Imports sqlite into a bdat file (NOT YET IMPLEMENTED).")]
+    public class SQLiteImportVerbs
+    {
+        [Option('i', "input", Required = true, HelpText = "Input sqlite file.")]
+        public string InputPath { get; set; }
+
+        [Option('o', "output", HelpText = "Output bdat file.")]
         public string OutputPath { get; set; }
     }
 }
