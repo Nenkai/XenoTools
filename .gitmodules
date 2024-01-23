@@ -1,0 +1,4 @@
+[submodule "esprima-dotnet"]
+	path = esprima-dotnet
+	url = https://github.com/Nenkai/esprima-dotnet.git
+	branch = xeno-script
