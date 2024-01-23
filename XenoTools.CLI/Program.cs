@@ -6,6 +6,8 @@ using XenoTools.BinaryData.ID;
 
 using XenoTools.BinaryData;
 using XenoTools.BinaryDataSQLite;
+using XenoTools.Resources;
+using XenoTools.Script;
 
 namespace XenoTools.CLI
 {
@@ -13,6 +15,29 @@ namespace XenoTools.CLI
     {
         static void Main(string[] args)
         {
+            var f = File.ReadAllBytes(@"D:\Games\Emu\yuzu\games\0100FF500E34A000\romfs\script\vs20510100.sb");
+            var h = new ScriptFile();
+            h.Read(f);
+
+            var comp = new ScriptCompiler();
+            comp.Compile(@"
+                static trdPsvLineAuto;
+
+                function test()
+                { 
+                    trdPsvLineAuto = thread(funcPsvLineAuto);
+                } 
+            
+                function funcPsvLineAuto()
+                {
+
+                }
+                ");
+
+            /*
+            var t = new ResLayImg();
+            t.Read();
+            */
             Console.WriteLine("-----------------------------------------");
             Console.WriteLine($"- XenoTools by Nenkai");
             Console.WriteLine("-----------------------------------------");
@@ -35,21 +60,24 @@ namespace XenoTools.CLI
                 return;
             }
 
-            var bdat = new Bdat();
-            bdat.Regist(exportVerbs.InputPath);
-
-            if (string.IsNullOrEmpty(exportVerbs.OutputPath))
-                exportVerbs.OutputPath = $"{Path.GetFileNameWithoutExtension(exportVerbs.InputPath)}.sqlite";
-
-            var _con = new SQLiteExporter();
-            _con.InitConnection(exportVerbs.OutputPath);
-
-            for (int i = 0; i < bdat.GetFileCount(); i++)
+            foreach (var ii in Directory.GetFiles("D:\\Games\\Emu\\yuzu\\games\\0100FF500E34A000\\romfs\\bdat\\", "*.bdat", SearchOption.TopDirectoryOnly))
             {
-                var file = bdat.GetFP(i);
+                var bdat = new Bdat();
+                bdat.Regist(ii);
 
-                (List<BinaryDataIDMember> Layout, List<BinaryDataID> IDs) bdatFileLayoutAndID = file.GetLayoutAndIDs();
-                _con.ExportTable(file.Name, bdatFileLayoutAndID.Layout, bdatFileLayoutAndID.IDs);
+                if (string.IsNullOrEmpty(ii))
+                    exportVerbs.OutputPath = $"{Path.GetFileNameWithoutExtension(exportVerbs.InputPath)}.sqlite";
+
+                var _con = new SQLiteExporter();
+                _con.InitConnection(ii + ".sqlite");
+
+                for (int i = 0; i < bdat.GetFileCount(); i++)
+                {
+                    var file = bdat.GetFP(i);
+
+                    (List<BinaryDataIDMember> Layout, List<BinaryDataID> IDs) bdatFileLayoutAndID = file.GetLayoutAndIDs();
+                    _con.ExportTable(file.Name, bdatFileLayoutAndID.Layout, bdatFileLayoutAndID.IDs);
+                }
             }
         }
 

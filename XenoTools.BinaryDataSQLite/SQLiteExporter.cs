@@ -24,6 +24,9 @@ namespace XenoTools.BinaryDataSQLite
 
         public void ExportTable(string tableName, List<BinaryDataIDMember> members, List<BinaryDataID> ids)
         {
+            if (!char.IsLetter(tableName[0]))
+                tableName = "_" + tableName;
+
             CreateSQLiteTable(tableName, members, ids);
             InsertIntoTable(tableName, members, ids);
         }
@@ -249,6 +252,8 @@ namespace XenoTools.BinaryDataSQLite
                 case "index":
                 case "group":
                 case "select":
+                case "limit":
+                case "order":
                     return $"_{name}";
             }
 

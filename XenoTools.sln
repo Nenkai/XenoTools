@@ -7,7 +7,13 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "XenoTools.BinaryData", "Xen
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "XenoTools.CLI", "XenoTools.CLI\XenoTools.CLI.csproj", "{1038AC07-607F-47E4-BF1D-A6CF54F78308}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "XenoTools.BinaryDataSQLite", "XenoTools.BinaryDataSQLite\XenoTools.BinaryDataSQLite.csproj", "{8C9F6B11-F396-4CEC-8F4F-6838E0EECDDC}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "XenoTools.BinaryDataSQLite", "XenoTools.BinaryDataSQLite\XenoTools.BinaryDataSQLite.csproj", "{8C9F6B11-F396-4CEC-8F4F-6838E0EECDDC}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "XenoTools.Resources", "XenoTools.ResLayImg\XenoTools.Resources.csproj", "{2D58A14C-65DE-4572-BC1D-3D1F380C3304}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "XenoTools.Script", "XenoTools.Script\XenoTools.Script.csproj", "{498FF97A-2B23-4919-92B5-A7484BF3B423}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Esprima", "esprima-dotnet\src\Esprima\Esprima.csproj", "{A62AE1F1-E64E-40CB-9C47-C677A128D3B1}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -27,6 +33,18 @@ Global
 		{8C9F6B11-F396-4CEC-8F4F-6838E0EECDDC}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{8C9F6B11-F396-4CEC-8F4F-6838E0EECDDC}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{8C9F6B11-F396-4CEC-8F4F-6838E0EECDDC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2D58A14C-65DE-4572-BC1D-3D1F380C3304}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2D58A14C-65DE-4572-BC1D-3D1F380C3304}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2D58A14C-65DE-4572-BC1D-3D1F380C3304}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2D58A14C-65DE-4572-BC1D-3D1F380C3304}.Release|Any CPU.Build.0 = Release|Any CPU
+		{498FF97A-2B23-4919-92B5-A7484BF3B423}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{498FF97A-2B23-4919-92B5-A7484BF3B423}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{498FF97A-2B23-4919-92B5-A7484BF3B423}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{498FF97A-2B23-4919-92B5-A7484BF3B423}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A62AE1F1-E64E-40CB-9C47-C677A128D3B1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A62AE1F1-E64E-40CB-9C47-C677A128D3B1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A62AE1F1-E64E-40CB-9C47-C677A128D3B1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A62AE1F1-E64E-40CB-9C47-C677A128D3B1}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
