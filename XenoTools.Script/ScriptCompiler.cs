@@ -147,15 +147,21 @@ namespace XenoTools.Script
         private void CompileVariableDeclaration(VariableDeclaration varDecl)
         {
             if (_currentFunctionFrame is null)
-                ThrowCompilationError("Attempted to declare variable outside function");
+                ThrowCompilationError(CompilationErrorMessage.NestedFunctionDeclaration);
 
             foreach (VariableDeclarator declarator in varDecl.Declarations)
             {
                 Identifier id = declarator.Id.As<Identifier>();
                 if (_currentFunctionFrame.Locals.Contains(id.Name))
-                    ThrowCompilationError("Variable already declared");
+                    ThrowCompilationError(CompilationErrorMessage.VariableRedeclaration);
 
                 _currentFunctionFrame.Locals.Add(id.Name);
+
+                if (declarator.Init is not null)
+                {
+                    CompileExpression(declarator.Init);
+                    CompileIdentifierAssignment(declarator.Id.As<Identifier>());
+                }
             }
         }
 
@@ -175,7 +181,7 @@ namespace XenoTools.Script
             if (!Statics.Contains(id.Name))
                 Statics.Add(id.Name);
             else
-                ThrowCompilationError(CompilationErrors.StaticAlreadyDeclared);
+                ThrowCompilationError(CompilationErrorMessage.StaticAlreadyDeclared);
         }
 
         private void CompileExpressionStatement(ExpressionStatement expStatement)
@@ -208,8 +214,27 @@ namespace XenoTools.Script
                 case Nodes.AssignmentExpression:
                     CompileAssignmentExpression(exp.As<AssignmentExpression>()); break;
 
+                    
+                case Nodes.LogicalExpression:
+                    CompileLogicalExpression(exp.As<BinaryExpression>()); break;
+                    
                 default:
-                    throw new NotImplementedException();
+                    ThrowCompilationError(CompilationErrorMessage.UnsupportedExpression);
+                    break;
+            }
+        }
+
+        private void CompileLogicalExpression(BinaryExpression binExp)
+        {
+            if (binExp.Operator == BinaryOperator.LogicalOr || binExp.Operator == BinaryOperator.LogicalAnd)
+            {
+                CompileExpression(binExp.Left);
+                CompileExpression(binExp.Right);
+
+                if (binExp.Operator == BinaryOperator.LogicalOr)
+                    InsertInstruction(new VmLogicalOr());
+                else
+                    InsertInstruction(new VmLogicalAnd());
             }
         }
 
@@ -236,6 +261,8 @@ namespace XenoTools.Script
 
                 return;
             }
+            else
+                ThrowCompilationError(CompilationErrorMessage.UnsupportedUnaryExpression);
         }
 
         private void CompileAssignmentExpression(AssignmentExpression assignmentExpression)
@@ -247,22 +274,7 @@ namespace XenoTools.Script
                 if (assignmentExpression.Left.Type == Nodes.Identifier)
                 {
                     Identifier id = assignmentExpression.Left.As<Identifier>();
-                    DeclType type = GetVarType(id.Name);
-
-                    switch (type)
-                    {
-                        case DeclType.Static:
-                            int staticIndex = Statics.IndexOf(id.Name);
-                            InsertInstruction(new VmStoreStatic((byte)staticIndex));
-                            break;
-
-                        case DeclType.Function:
-                            ThrowCompilationError(CompilationErrors.AssignToFunction);
-                            break;
-
-                        default:
-                            throw new NotImplementedException();
-                    }
+                    CompileIdentifierAssignment(id);
                 }
                 else if (assignmentExpression.Left is AttributeMemberExpression attrMemberExpr)
                 {
@@ -270,10 +282,62 @@ namespace XenoTools.Script
                         ThrowCompilationError("Incorrect");
 
                     CompileIdentifier(attrMemberExpr.Object.As<Identifier>());
-                    ;
+
+                    Identifier propIdentifier = attrMemberExpr.Property.As<Identifier>();
+                    int idIndex = IdentifierPool.IndexOf(propIdentifier.Name);
+
+                    if (idIndex == -1)
+                        ThrowCompilationError("huh");
+
+                    if (idIndex <= byte.MaxValue)
+                        InsertInstruction(new VmSetter((byte)idIndex));
+                    else if (idIndex <= ushort.MaxValue)
+                        InsertInstruction(new VmSetter_Word((ushort)idIndex));
+                    else
+                        ThrowCompilationError("id index too large");
                 }
                 else
                     ThrowCompilationError("Not supported");
+            }
+            else
+                ThrowCompilationError(CompilationErrorMessage.UnsupportedAssignmentExpression);
+        }
+
+        private void CompileIdentifierAssignment(Identifier id)
+        {
+            DeclType type = GetVarType(id.Name);
+
+            switch (type)
+            {
+                case DeclType.Local:
+                    int localIndex = _currentFunctionFrame.Locals.IndexOf(id.Name);
+                    switch (localIndex)
+                    {
+                        case 0:
+                            InsertInstruction(new VmStore0()); break;
+                        case 1:
+                            InsertInstruction(new VmStore1()); break;
+                        case 2:
+                            InsertInstruction(new VmStore2()); break;
+                        case 3:
+                            InsertInstruction(new VmStore3()); break;
+
+                        default:
+                            InsertInstruction(new VmStore((byte)localIndex)); break;
+                    }
+                    break;
+
+                case DeclType.Static:
+                    int staticIndex = Statics.IndexOf(id.Name);
+                    InsertInstruction(new VmStoreStatic((byte)staticIndex));
+                    break;
+
+                case DeclType.Function:
+                    ThrowCompilationError(CompilationErrorMessage.AssignToFunction);
+                    break;
+
+                default:
+                    throw new NotImplementedException();
             }
         }
 
@@ -353,7 +417,7 @@ namespace XenoTools.Script
                     InsertInstruction(new VmCall(idx));
                 }
                 else
-                    ThrowCompilationError(CompilationErrors.CallToUndeclaredFunction);
+                    ThrowCompilationError(CompilationErrorMessage.CallToUndeclaredFunction);
             }
             else if (call.Callee.Type == Nodes.MemberExpression)
             {
@@ -419,13 +483,13 @@ namespace XenoTools.Script
                     InsertInstruction(new VmNotEquals());
                     break;
                 case BinaryOperator.Greater:
-                    InsertInstruction(new VmGreaterOrEquals());
+                    InsertInstruction(new VmGreaterThan());
                     break;
                 case BinaryOperator.GreaterOrEqual:
                     InsertInstruction(new VmGreaterOrEquals());
                     break;
                 case BinaryOperator.Less:
-                    InsertInstruction(new VmLesserOrEquals());
+                    InsertInstruction(new VmLesserThan());
                     break;
                 case BinaryOperator.LessOrEqual:
                     InsertInstruction(new VmLesserOrEquals());
@@ -504,7 +568,7 @@ namespace XenoTools.Script
                     break;
 
                 case DeclType.Undefined:
-                    ThrowCompilationError("Undefined");
+                    ThrowCompilationError(CompilationErrorMessage.UndefinedIdentifier);
                     break;
 
                 default: 
@@ -555,7 +619,7 @@ namespace XenoTools.Script
             else if (idx < ushort.MaxValue)
                 InsertInstruction(new VmPoolString_Word((ushort)idx));
             else
-                ThrowCompilationError(CompilationErrors.PoolIndexTooBig);
+                ThrowCompilationError(CompilationErrorMessage.PoolIndexTooBig);
         }
 
         private void CompileFloat(float value)
@@ -569,7 +633,7 @@ namespace XenoTools.Script
             else if (idx <= ushort.MaxValue)
                 InsertInstruction(new VmPoolFloat_Word((ushort)idx));
             else
-                ThrowCompilationError(CompilationErrors.PoolIndexTooBig);
+                ThrowCompilationError(CompilationErrorMessage.PoolIndexTooBig);
         }
 
         private void CompileInteger(int value)
@@ -602,7 +666,7 @@ namespace XenoTools.Script
                         else if (idx <= ushort.MaxValue)
                             InsertInstruction(new VmPoolInt_Word((ushort)idx));
                         else
-                            ThrowCompilationError(CompilationErrors.PoolIndexTooBig);
+                            ThrowCompilationError(CompilationErrorMessage.PoolIndexTooBig);
                     }
                     break;
             }
@@ -619,12 +683,19 @@ namespace XenoTools.Script
         }
     }
 
-    public class CompilationErrors
+    public class CompilationErrorMessage
     {
         public const string PoolIndexTooBig = "Int pool index too large.";
         public const string CallToUndeclaredFunction = "Undeclared function";
         public const string StaticAlreadyDeclared = "Static was already declared.";
         public const string AssignToFunction = "Attempted to assign to a function.";
+        public const string NestedFunctionDeclaration = "Attempted to declare variable outside function";
+        public const string VariableRedeclaration = "Local variable is already declared.";
+        public const string UnsupportedExpression = "Unsupported expression";
+        public const string UnsupportedUnaryExpression = "Unsupported unary expression type";
+        public const string UnsupportedAssignmentExpression = "Unsupported assignment expression type";
+        public const string UndefinedIdentifier = "Undefined identifier";
+
     }
 
     public enum DeclType

@@ -7,6 +7,7 @@ using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
 using Syroot.BinaryData.Memory;
+using Syroot.BinaryData;
 
 using XenoTools.Script.Instructions;
 using XenoTools.Script;
@@ -21,7 +22,7 @@ public abstract class VMInstructionBase
     public int Offset { get; set; }
 
     public abstract void Read(ref SpanReader sr);
-    public abstract void Write(ref SpanReader sr);
+    public abstract void Write(BinaryStream bs);
     
     public int ReadValue(ref SpanReader sr)
     {

@@ -1,4 +1,5 @@
-﻿using Syroot.BinaryData.Memory;
+﻿using Syroot.BinaryData;
+using Syroot.BinaryData.Memory;
 
 using System;
 using System.Collections.Generic;
@@ -19,8 +20,8 @@ public class VmJump : VMInstructionBase
         JumpRelativeOffset = sr.ReadUInt16();
     }
 
-    public override void Write(ref SpanReader sr)
+    public override void Write(BinaryStream bs)
     {
-        
+        bs.WriteUInt16(JumpRelativeOffset);
     }
 }

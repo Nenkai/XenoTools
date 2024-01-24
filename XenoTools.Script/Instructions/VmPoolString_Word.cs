@@ -1,4 +1,5 @@
-﻿using Syroot.BinaryData.Memory;
+﻿using Syroot.BinaryData;
+using Syroot.BinaryData.Memory;
 
 using System;
 using System.Collections.Generic;
@@ -29,8 +30,8 @@ public class VmPoolString_Word : VMInstructionBase
         StringIndex = (ushort)ReadValue(ref sr);
     }
 
-    public override void Write(ref SpanReader sr)
+    public override void Write(BinaryStream bs)
     {
-        throw new NotImplementedException();
+        bs.WriteUInt16(StringIndex);
     }
 }

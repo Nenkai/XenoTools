@@ -1,4 +1,5 @@
-﻿using Syroot.BinaryData.Memory;
+﻿using Syroot.BinaryData;
+using Syroot.BinaryData.Memory;
 
 using System;
 using System.Collections.Generic;
@@ -12,7 +13,7 @@ public class VmLoad : VMInstructionBase
 {
     public override VmInstType Type => VmInstType.LD;
 
-    public byte IDIndex { get; set; }
+    public byte StackIndex { get; set; }
 
     public VmLoad()
     {
@@ -21,16 +22,16 @@ public class VmLoad : VMInstructionBase
 
     public VmLoad(byte idIndex)
     {
-        IDIndex = idIndex;
+        StackIndex = idIndex;
     }
 
     public override void Read(ref SpanReader sr)
     {
-        IDIndex = sr.ReadByte();
+        StackIndex = sr.ReadByte();
     }
 
-    public override void Write(ref SpanReader sr)
+    public override void Write(BinaryStream bs)
     {
-
+        bs.WriteByte(StackIndex);
     }
 }

@@ -1,4 +1,5 @@
 ﻿using Syroot.BinaryData.Memory;
+using Syroot.BinaryData;
 
 using System;
 using System.Collections.Generic;
@@ -17,7 +18,7 @@ public class VmConst0 : VMInstructionBase
 
     }
 
-    public override void Write(ref SpanReader sr)
+    public override void Write(BinaryStream bs)
     {
 
     }

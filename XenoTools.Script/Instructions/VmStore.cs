@@ -9,29 +9,29 @@ using System.Threading.Tasks;
 
 namespace XenoTools.Script.Instructions;
 
-public class VmPoolFloat_Word : VMInstructionBase
+public class VmStore : VMInstructionBase
 {
-    public override VmInstType Type => VmInstType.POOL_FLOAT_W;
+    public override VmInstType Type => VmInstType.ST;
 
-    public ushort FloatIndex { get; set; }
+    public byte StackIndex { get; set; }
 
-    public VmPoolFloat_Word()
+    public VmStore()
     {
 
     }
 
-    public VmPoolFloat_Word(ushort floatIndex)
+    public VmStore(byte stackIndex)
     {
-        FloatIndex = floatIndex;
+        StackIndex = stackIndex;
     }
 
     public override void Read(ref SpanReader sr)
     {
-        FloatIndex = (ushort)ReadValue(ref sr);
+        StackIndex = sr.ReadByte();
     }
 
     public override void Write(BinaryStream bs)
     {
-        bs.WriteUInt16(FloatIndex);
+        bs.WriteByte(StackIndex);
     }
 }

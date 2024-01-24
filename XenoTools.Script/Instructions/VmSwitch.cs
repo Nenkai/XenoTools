@@ -1,4 +1,5 @@
-﻿using Syroot.BinaryData.Memory;
+﻿using Syroot.BinaryData;
+using Syroot.BinaryData.Memory;
 
 using System;
 using System.Collections.Generic;
@@ -14,6 +15,9 @@ public class VmSwitch : VMInstructionBase
 
     public byte NumBranches { get; set; }
     public uint DefaultCase { get; set; }
+    public List<VmSwitchBranch> Branches { get; set; } = new();
+
+    public record VmSwitchBranch(uint Case, uint Offset);
 
     public override void Read(ref SpanReader sr)
     {
@@ -22,14 +26,19 @@ public class VmSwitch : VMInstructionBase
 
         for (int i = 0; i < NumBranches; i++)
         {
-            // TODO
-            sr.ReadUInt32();
-            sr.ReadUInt32();
+            Branches.Add(new VmSwitchBranch(sr.ReadUInt32(), sr.ReadUInt32()));
         }
     }
 
-    public override void Write(ref SpanReader sr)
+    public override void Write(BinaryStream bs)
     {
-        throw new NotImplementedException();
+        bs.WriteByte(NumBranches);
+        bs.WriteUInt32(DefaultCase);
+
+        for (int i = 0; i < NumBranches; i++)
+        {
+            bs.WriteUInt32(Branches[i].Case);
+            bs.WriteUInt32(Branches[i].Offset);
+        }
     }
 }
