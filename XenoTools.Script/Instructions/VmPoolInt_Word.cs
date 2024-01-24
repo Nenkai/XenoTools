@@ -12,21 +12,21 @@ public class VmPoolInt_Word : VMInstructionBase
 {
     public override VmInstType Type => VmInstType.POOL_INT_W;
 
-    public int IntIndex { get; set; }
+    public ushort IntIndex { get; set; }
 
     public VmPoolInt_Word()
     {
 
     }
 
-    public VmPoolInt_Word(short index)
+    public VmPoolInt_Word(ushort index)
     {
         IntIndex = index;
     }
 
     public override void Read(ref SpanReader sr)
     {
-        IntIndex = ReadValue(ref sr);
+        IntIndex = (ushort)ReadValue(ref sr);
     }
 
     public override void Write(ref SpanReader sr)

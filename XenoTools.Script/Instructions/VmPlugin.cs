@@ -12,11 +12,21 @@ public class VmPlugin : VMInstructionBase
 {
     public override VmInstType Type => VmInstType.PLUGIN;
 
-    public int PluginImportIndex { get; set; }
+    public byte PluginImportIndex { get; set; }
+
+    public VmPlugin()
+    {
+
+    }
+
+    public VmPlugin(byte pluginImportIndex)
+    {
+        PluginImportIndex = pluginImportIndex;
+    }
 
     public override void Read(ref SpanReader sr)
     {
-        PluginImportIndex = ReadValue(ref sr);
+        PluginImportIndex = (byte)ReadValue(ref sr);
     }
 
     public override void Write(ref SpanReader sr)

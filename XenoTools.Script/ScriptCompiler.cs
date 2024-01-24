@@ -40,14 +40,18 @@ namespace XenoTools.Script
             "cfp"
         ];
 
-        public FunctionFrame FunctionFrame { get; set; }
         public List<string> Statics { get; set; } = new();
 
         public List<VMInstructionBase> Code { get; set; } = new();
 
         public List<int> IntPool { get; set; } = new();
+        public List<float> FixedPool { get; set; } = new();
+        public List<string> StringPool { get; set; } = new();
         public List<string> IdentifierPool { get; set; } = new();
         public List<string> FuncPool { get; set; } = new();
+        public List<string> PluginImportPool { get; set; } = new();
+
+        public FunctionFrame _currentFunctionFrame;
 
         public void Compile(string code)
         {
@@ -79,6 +83,18 @@ namespace XenoTools.Script
                 AddIdentifier(function.Id.Name);
                 FuncPool.Add(function.Id.Name);
             }
+            else if (node.Type == Nodes.CallExpression)
+            {
+                CallExpression call = node.As<CallExpression>();
+                if (call.Callee is StaticMemberExpression staticMemberExpr)
+                {
+                    string objName = staticMemberExpr.Object.As<Identifier>().Name;
+                    string propName = staticMemberExpr.Property.As<Identifier>().Name;
+
+                    if (!PluginImportPool.Contains($"{objName}::{propName}"))
+                        PluginImportPool.Add($"{objName}::{propName}");
+                }
+            }
         }
 
         private void AddIdentifier(string id)
@@ -103,37 +119,59 @@ namespace XenoTools.Script
             switch (node.Type)
             {
                 case Nodes.ExpressionStatement:
-                    CompileExpressionStatement(node as ExpressionStatement); break;
+                    CompileExpressionStatement(node.As<ExpressionStatement>()); break;
 
                 case Nodes.FunctionDeclaration:
-                    CompileFunctionDeclaration(node as FunctionDeclaration); break;
+                    CompileFunctionDeclaration(node.As<FunctionDeclaration>()); break;
 
                 case Nodes.BlockStatement:
-                    CompileBlockStatement(node as BlockStatement); break;
+                    CompileBlockStatement(node.As<BlockStatement>()); break;
 
                 case Nodes.IfStatement:
-                    CompileIfStatement(node as IfStatement); break;
+                    CompileIfStatement(node.As<IfStatement>()); break;
 
                 case Nodes.ForStatement:
-                    CompileForStatement(node as ForStatement); break;
+                    CompileForStatement(node.As<ForStatement>()); break;
 
                 case Nodes.StaticDeclaration:
-                    CompileStaticDeclaration(node as StaticDeclaration); break;
+                    CompileStaticDeclaration(node.As<StaticDeclaration>()); break;
+
+                case Nodes.VariableDeclaration:
+                    CompileVariableDeclaration(node.As<VariableDeclaration>()); break;
 
                 default:
                     throw new NotImplementedException();
             }
         }
 
+        private void CompileVariableDeclaration(VariableDeclaration varDecl)
+        {
+            if (_currentFunctionFrame is null)
+                ThrowCompilationError("Attempted to declare variable outside function");
+
+            foreach (VariableDeclarator declarator in varDecl.Declarations)
+            {
+                Identifier id = declarator.Id.As<Identifier>();
+                if (_currentFunctionFrame.Locals.Contains(id.Name))
+                    ThrowCompilationError("Variable already declared");
+
+                _currentFunctionFrame.Locals.Add(id.Name);
+            }
+        }
+
         private void CompileFunctionDeclaration(FunctionDeclaration funcDecl)
         {
+            _currentFunctionFrame = new FunctionFrame();
+
             CompileStatement(funcDecl.Body);
             InsertInstruction(new VmRet());
+
+            _currentFunctionFrame = null;
         }
 
         private void CompileStaticDeclaration(StaticDeclaration staticDecl)
         {
-            Identifier id = staticDecl.Declaration.Id as Identifier;
+            Identifier id = staticDecl.Declaration.Id.As<Identifier>();
             if (!Statics.Contains(id.Name))
                 Statics.Add(id.Name);
             else
@@ -150,25 +188,53 @@ namespace XenoTools.Script
             switch (exp.Type)
             {
                 case Nodes.Identifier:
-                    CompileIdentifier(exp as Identifier);
+                    CompileIdentifier(exp.As<Identifier>());
                     break;
 
                 case Nodes.CallExpression:
-                    CompileCall(exp as CallExpression);
+                    CompileCall(exp.As<CallExpression>());
                     break;
 
                 case Nodes.Literal:
-                    CompileLiteral(exp as Literal);
+                    CompileLiteral(exp.As<Literal>());
                     break;
 
+                case Nodes.UnaryExpression:
+                    CompileUnaryExpression(exp.As<UnaryExpression>()); break;
+
                 case Nodes.BinaryExpression:
-                    CompileBinaryExpression(exp as BinaryExpression); break;
+                    CompileBinaryExpression(exp.As<BinaryExpression>()); break;
 
                 case Nodes.AssignmentExpression:
-                    CompileAssignmentExpression(exp as AssignmentExpression); break;
+                    CompileAssignmentExpression(exp.As<AssignmentExpression>()); break;
 
                 default:
                     throw new NotImplementedException();
+            }
+        }
+
+        private void CompileUnaryExpression(UnaryExpression unaryExpr)
+        {
+            if (unaryExpr.Argument.Type == Nodes.Literal && unaryExpr.Operator == UnaryOperator.Minus)
+            {
+                Literal literal = unaryExpr.Argument.As<Literal>();
+
+                switch (literal.NumericTokenType)
+                {
+                    case NumericTokenType.Float:
+                        CompileFloat(-((float)literal.Value));
+                        break;
+
+                    case NumericTokenType.Integer:
+                        CompileInteger(-((int)literal.Value));
+                        break;
+
+                    default:
+                        ThrowCompilationError("Unexpected syntax");
+                        break;
+                }
+
+                return;
             }
         }
 
@@ -178,23 +244,36 @@ namespace XenoTools.Script
             {
                 CompileExpression(assignmentExpression.Right);
 
-                var id = assignmentExpression.Left as Identifier;
-                DeclType type = GetVarType(id.Name);
-
-                switch (type)
+                if (assignmentExpression.Left.Type == Nodes.Identifier)
                 {
-                    case DeclType.Static:
-                        int staticIndex = Statics.IndexOf(id.Name);
-                        InsertInstruction(new VmStoreStatic((byte)staticIndex));
-                        break;
+                    Identifier id = assignmentExpression.Left.As<Identifier>();
+                    DeclType type = GetVarType(id.Name);
 
-                    case DeclType.Function:
-                        ThrowCompilationError(CompilationErrors.AssignToFunction);
-                        break;
+                    switch (type)
+                    {
+                        case DeclType.Static:
+                            int staticIndex = Statics.IndexOf(id.Name);
+                            InsertInstruction(new VmStoreStatic((byte)staticIndex));
+                            break;
 
-                    default:
-                        throw new NotImplementedException();
+                        case DeclType.Function:
+                            ThrowCompilationError(CompilationErrors.AssignToFunction);
+                            break;
+
+                        default:
+                            throw new NotImplementedException();
+                    }
                 }
+                else if (assignmentExpression.Left is AttributeMemberExpression attrMemberExpr)
+                {
+                    if (attrMemberExpr.Object.Type != Nodes.Identifier || attrMemberExpr.Property.Type != Nodes.Identifier)
+                        ThrowCompilationError("Incorrect");
+
+                    CompileIdentifier(attrMemberExpr.Object.As<Identifier>());
+                    ;
+                }
+                else
+                    ThrowCompilationError("Not supported");
             }
         }
 
@@ -206,8 +285,13 @@ namespace XenoTools.Script
                 return DeclType.Static;
             else if (FuncPool.Contains(identifier))
                 return DeclType.Function;
+            else if (_currentFunctionFrame is not null)
+            {
+                if (_currentFunctionFrame.Locals.Contains(identifier))
+                    return DeclType.Local;
+            }
 
-            return DeclType.Local;
+            return DeclType.Undefined;
         }
 
         private void CompileIfStatement(IfStatement ifStatement)
@@ -245,11 +329,12 @@ namespace XenoTools.Script
             InsertInstruction(jumpBack);
         }
 
-        private void CompileCall(CallExpression call, bool popReturnValue = false)
+        private void CompileCall(CallExpression call)
         {
-            foreach (Expression argExpr in call.Arguments)
+            for (int i = call.Arguments.Count - 1; i >= 0; i--)
             {
-                CompileExpression(argExpr);
+                Expression arg = call.Arguments[i];
+                CompileExpression(arg);
             }
 
             CompileInteger(call.Arguments.Count);
@@ -259,21 +344,55 @@ namespace XenoTools.Script
                 DeclType type = GetVarType(funcIdentifier.Name);
                 if (type == DeclType.OC)
                 {
-                    byte idx = (byte)OCs.IndexOf(((Identifier)call.Callee).Name);
+                    byte idx = (byte)OCs.IndexOf(call.Callee.As<Identifier>().Name);
                     InsertInstruction(new VmGetOC(idx));
                 }
                 else if (type == DeclType.Function)
                 {
-                    CompileExpression(call.Callee);
-
-                    byte idx = (byte)FuncPool.IndexOf(((Identifier)call.Callee).Name);
+                    byte idx = (byte)FuncPool.IndexOf(call.Callee.As<Identifier>().Name);
                     InsertInstruction(new VmCall(idx));
                 }
                 else
                     ThrowCompilationError(CompilationErrors.CallToUndeclaredFunction);
             }
+            else if (call.Callee.Type == Nodes.MemberExpression)
+            {
+                MemberExpression memberExpression = (MemberExpression)call.Callee;
+                if (memberExpression.Object.Type != Nodes.Identifier || memberExpression.Property.Type != Nodes.Identifier)
+                    ThrowCompilationError("Unexpected syntax");
 
+                if (call.Callee is AttributeMemberExpression)
+                {
+                    CompileIdentifier(memberExpression.Object.As<Identifier>());
 
+                    int idx = IdentifierPool.IndexOf(memberExpression.Property.As<Identifier>().Name);
+
+                    if (idx <= byte.MaxValue)
+                        InsertInstruction(new VmSend((byte)idx));
+                    else if (idx <= ushort.MaxValue)
+                        InsertInstruction(new VmSend_Word((ushort)idx));
+                    else
+                        ThrowCompilationError("Idx too large");
+                }
+                else if (call.Callee is StaticMemberExpression)
+                {
+                    string objName = memberExpression.Object.As<Identifier>().Name;
+                    string propName = memberExpression.Property.As<Identifier>().Name;
+
+                    int idx = PluginImportPool.IndexOf($"{objName}::{propName}");
+                    if (idx == -1)
+                        ThrowCompilationError("Compiler error - plugin import not found?");
+
+                    if (idx >= 0 && idx <= byte.MaxValue)
+                        InsertInstruction(new VmPlugin((byte)idx));
+                    else if (idx >= 0 && idx <= ushort.MaxValue)
+                        InsertInstruction(new VmSend_Word((ushort)idx));
+                    else
+                        ThrowCompilationError("Idx too large");
+                }
+            }
+            else
+                ThrowCompilationError("Unsupported callee type");
         }
 
         private void CompileBinaryExpression(BinaryExpression binExpression)
@@ -349,12 +468,43 @@ namespace XenoTools.Script
             {
                 case DeclType.Static:
                     int staticIndex = Statics.IndexOf(identifier.Name);
+                    if (staticIndex == -1)
+                        ThrowCompilationError("aa");
+
                     InsertInstruction(new VmLoadStatic((byte)staticIndex));
                     break;
 
                 case DeclType.Function:
                     int functionIndex = FuncPool.IndexOf(identifier.Name);
+                    if (functionIndex == -1)
+                        ThrowCompilationError("aa");
+
                     InsertInstruction(new VmLoadFunction((byte)functionIndex));
+                    break;
+
+                case DeclType.Local:
+                    int idIndex = IdentifierPool.IndexOf(identifier.Name);
+                    if (idIndex == -1)
+                        ThrowCompilationError("aa");
+
+                    switch (idIndex)
+                    {
+                        case 0:
+                            InsertInstruction(new VmLoad0()); break;
+                        case 1:
+                            InsertInstruction(new VmLoad1()); break;
+                        case 2:
+                            InsertInstruction(new VmLoad2()); break;
+                        case 3:
+                            InsertInstruction(new VmLoad3()); break;
+
+                        default:
+                            InsertInstruction(new VmLoad((byte)idIndex)); break;
+                    }
+                    break;
+
+                case DeclType.Undefined:
+                    ThrowCompilationError("Undefined");
                     break;
 
                 default: 
@@ -370,7 +520,7 @@ namespace XenoTools.Script
             }
             else if (literal.NumericTokenType == NumericTokenType.Float)
             {
-                throw new NotImplementedException();
+                CompileFloat((float)literal.Value);
             }
             else if (literal.TokenType == TokenType.BooleanLiteral)
             {
@@ -379,10 +529,47 @@ namespace XenoTools.Script
                 else
                     InsertInstruction(new VmLoadFalse());
             }
+            else if (literal.TokenType == TokenType.StringLiteral)
+            {
+                string str = literal.StringValue;
+                CompileStringLiteral(str);
+            }
+            else if (literal.TokenType == TokenType.NilLiteral)
+            {
+                InsertInstruction(new VmLoadNil());
+            }
             else
             {
                 throw new NotImplementedException();
             }
+        }
+
+        private void CompileStringLiteral(string str)
+        {
+            if (!StringPool.Contains(str))
+                StringPool.Add(str);
+
+            int idx = StringPool.IndexOf(str);
+            if (idx <= byte.MaxValue)
+                InsertInstruction(new VmPoolString((byte)idx));
+            else if (idx < ushort.MaxValue)
+                InsertInstruction(new VmPoolString_Word((ushort)idx));
+            else
+                ThrowCompilationError(CompilationErrors.PoolIndexTooBig);
+        }
+
+        private void CompileFloat(float value)
+        {
+            if (!FixedPool.Contains(value))
+                FixedPool.Add(value);
+
+            int idx = FixedPool.IndexOf(value);
+            if (idx <= byte.MaxValue)
+                InsertInstruction(new VmPoolFloat((byte)idx));
+            else if (idx <= ushort.MaxValue)
+                InsertInstruction(new VmPoolFloat_Word((ushort)idx));
+            else
+                ThrowCompilationError(CompilationErrors.PoolIndexTooBig);
         }
 
         private void CompileInteger(int value)
@@ -400,20 +587,20 @@ namespace XenoTools.Script
                 case 4:
                     InsertInstruction(new VmConst4()); break;
                 default:
-                    if (value > byte.MinValue && value < byte.MaxValue)
+                    if (value >= 0 && value <= byte.MaxValue)
                         InsertInstruction(new VmConstInteger((byte)value));
-                    else if (value > short.MinValue && value < short.MaxValue)
-                        InsertInstruction(new VmConstInteger_Word((short)value));
+                    else if (value >= 0 && value <= ushort.MaxValue)
+                        InsertInstruction(new VmConstInteger_Word((ushort)value));
                     else
                     {
                         if (!IntPool.Contains(value))
                             IntPool.Add(value);
 
                         int idx = IntPool.IndexOf(value);
-                        if (idx > byte.MaxValue)
+                        if (idx <= byte.MaxValue)
                             InsertInstruction(new VmPoolInt((byte)idx));
-                        else if (idx < short.MaxValue)
-                            InsertInstruction(new VmPoolInt_Word((byte)idx));
+                        else if (idx <= ushort.MaxValue)
+                            InsertInstruction(new VmPoolInt_Word((ushort)idx));
                         else
                             ThrowCompilationError(CompilationErrors.PoolIndexTooBig);
                     }
@@ -442,9 +629,11 @@ namespace XenoTools.Script
 
     public enum DeclType
     {
+        Undefined,
+
         Static,
         Local,
         Function,
-        OC
+        OC,
     }
 }

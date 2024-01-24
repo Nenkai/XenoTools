@@ -8,15 +8,25 @@ using System.Threading.Tasks;
 
 namespace XenoTools.Script.Instructions;
 
-public class VmPoolStr : VMInstructionBase
+public class VmPoolString : VMInstructionBase
 {
     public override VmInstType Type => VmInstType.POOL_STR;
 
-    public int StringIndex { get; set; }
+    public byte StringIndex { get; set; }
+
+    public VmPoolString()
+    {
+
+    }
+
+    public VmPoolString(byte stringIndex)
+    {
+        StringIndex = stringIndex;
+    }
 
     public override void Read(ref SpanReader sr)
     {
-        StringIndex = ReadValue(ref sr);
+        StringIndex = (byte)ReadValue(ref sr);
     }
 
     public override void Write(ref SpanReader sr)

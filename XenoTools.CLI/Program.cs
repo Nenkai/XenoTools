@@ -21,11 +21,12 @@ namespace XenoTools.CLI
 
             var comp = new ScriptCompiler();
             comp.Compile(@"
-                static trdPsvLineAuto;
-
                 function test()
                 { 
-                    trdPsvLineAuto = thread(funcPsvLineAuto);
+                    var unitPC3 = unit(""player"", 3);
+                    unitPC3.x = -38.93;
+                    unitPC3.y = -1.91;
+                    unitPC3.z = -7.5900002;
                 } 
             
                 function funcPsvLineAuto()

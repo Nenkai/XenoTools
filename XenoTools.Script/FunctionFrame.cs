@@ -8,7 +8,7 @@ namespace XenoTools.Script
 {
     public class FunctionFrame
     {
-        public List<string> Arguments { get; set; }
-        public List<string> Locals { get; set; }
+        public List<string> Arguments { get; set; } = [];
+        public List<string> Locals { get; set; } = [];
     }
 }

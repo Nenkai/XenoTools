@@ -12,11 +12,21 @@ public class VmPoolFloat_Word : VMInstructionBase
 {
     public override VmInstType Type => VmInstType.POOL_FLOAT_W;
 
-    public int FloatIndex { get; set; }
+    public ushort FloatIndex { get; set; }
+
+    public VmPoolFloat_Word()
+    {
+
+    }
+
+    public VmPoolFloat_Word(ushort floatIndex)
+    {
+        FloatIndex = floatIndex;
+    }
 
     public override void Read(ref SpanReader sr)
     {
-        FloatIndex = ReadValue(ref sr);
+        FloatIndex = (ushort)ReadValue(ref sr);
     }
 
     public override void Write(ref SpanReader sr)

@@ -8,29 +8,29 @@ using System.Threading.Tasks;
 
 namespace XenoTools.Script.Instructions;
 
-public class VmSend : VMInstructionBase
+public class VmLoad : VMInstructionBase
 {
-    public override VmInstType Type => VmInstType.SEND;
+    public override VmInstType Type => VmInstType.LD;
 
     public byte IDIndex { get; set; }
 
-    public VmSend()
+    public VmLoad()
     {
-
+        
     }
 
-    public VmSend(byte idIndex)
+    public VmLoad(byte idIndex)
     {
         IDIndex = idIndex;
     }
 
     public override void Read(ref SpanReader sr)
     {
-        IDIndex = (byte)ReadValue(ref sr);
+        IDIndex = sr.ReadByte();
     }
 
     public override void Write(ref SpanReader sr)
     {
-        throw new NotImplementedException();
+
     }
 }

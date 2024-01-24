@@ -12,7 +12,7 @@ public class VmPoolInt : VMInstructionBase
 {
     public override VmInstType Type => VmInstType.POOL_INT;
 
-    public int IntIndex { get; set; }
+    public byte IntIndex { get; set; }
 
     public VmPoolInt()
     {
@@ -26,7 +26,7 @@ public class VmPoolInt : VMInstructionBase
 
     public override void Read(ref SpanReader sr)
     {
-        IntIndex = ReadValue(ref sr);
+        IntIndex = (byte)ReadValue(ref sr);
     }
 
     public override void Write(ref SpanReader sr)

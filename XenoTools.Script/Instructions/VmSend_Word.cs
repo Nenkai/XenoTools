@@ -12,11 +12,21 @@ public class VmSend_Word : VMInstructionBase
 {
     public override VmInstType Type => VmInstType.SEND_W;
 
-    public int ID { get; set; }
+    public ushort IDIndex { get; set; }
+
+    public VmSend_Word()
+    {
+
+    }
+
+    public VmSend_Word(ushort idIndex)
+    {
+        IDIndex = idIndex;
+    }
 
     public override void Read(ref SpanReader sr)
     {
-        ID = ReadValue(ref sr);
+        IDIndex = (ushort)ReadValue(ref sr);
     }
 
     public override void Write(ref SpanReader sr)

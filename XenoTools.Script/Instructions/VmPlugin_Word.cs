@@ -8,25 +8,25 @@ using System.Threading.Tasks;
 
 namespace XenoTools.Script.Instructions;
 
-public class VmPoolString_Word : VMInstructionBase
+public class VmPlugin_Word : VMInstructionBase
 {
-    public override VmInstType Type => VmInstType.POOL_STR_W;
+    public override VmInstType Type => VmInstType.PLUGIN_W;
 
-    public ushort StringIndex { get; set; }
+    public ushort PluginImportIndex { get; set; }
 
-    public VmPoolString_Word()
+    public VmPlugin_Word()
     {
 
     }
 
-    public VmPoolString_Word(ushort stringIndex)
+    public VmPlugin_Word(ushort pluginImportIndex)
     {
-        StringIndex = stringIndex;
+        PluginImportIndex = pluginImportIndex;
     }
 
     public override void Read(ref SpanReader sr)
     {
-        StringIndex = (ushort)ReadValue(ref sr);
+        PluginImportIndex = (ushort)ReadValue(ref sr);
     }
 
     public override void Write(ref SpanReader sr)
