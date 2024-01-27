@@ -24,4 +24,9 @@ public class VmLoadArg : VMInstructionBase
     {
         bs.WriteByte(ArgCount);
     }
+
+    public override int GetSize()
+    {
+        return sizeof(byte);
+    }
 }

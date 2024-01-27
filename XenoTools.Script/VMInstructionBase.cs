@@ -23,7 +23,8 @@ public abstract class VMInstructionBase
 
     public abstract void Read(ref SpanReader sr);
     public abstract void Write(BinaryStream bs);
-    
+    public abstract int GetSize();
+
     public int ReadValue(ref SpanReader sr)
     {
         return VMInstructionBase.InstToLayout[(int)Type].ValueTypeSize switch
@@ -35,6 +36,7 @@ public abstract class VMInstructionBase
             _ => throw new InvalidDataException("Invalid instruction value type?")
         };
     }
+
 
     public static VMInstructionBase NewByType(VmInstType type)
     {

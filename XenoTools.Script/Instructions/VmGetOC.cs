@@ -34,4 +34,9 @@ public class VmGetOC : VMInstructionBase
     {
         bs.WriteByte(OCIndex);
     }
+
+    public override int GetSize()
+    {
+        return sizeof(byte);
+    }
 }

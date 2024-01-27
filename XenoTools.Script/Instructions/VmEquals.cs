@@ -22,4 +22,9 @@ public class VmEquals : VMInstructionBase
     {
 
     }
+
+    public override int GetSize()
+    {
+        return 0;
+    }
 }

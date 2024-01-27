@@ -34,4 +34,9 @@ public class VmPlugin : VMInstructionBase
     {
         bs.WriteByte(PluginImportIndex);
     }
+
+    public override int GetSize()
+    {
+        return sizeof(byte);
+    }
 }

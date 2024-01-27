@@ -32,6 +32,11 @@ public class VmConstInteger_Word : VMInstructionBase
 
     public override void Write(BinaryStream bs)
     {
-        bs.WriteUint16(Value);
+        bs.WriteUInt16(Value);
+    }
+
+    public override int GetSize()
+    {
+        return sizeof(ushort);
     }
 }

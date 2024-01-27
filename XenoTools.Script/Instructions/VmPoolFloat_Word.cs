@@ -34,4 +34,9 @@ public class VmPoolFloat_Word : VMInstructionBase
     {
         bs.WriteUInt16(FloatIndex);
     }
+
+    public override int GetSize()
+    {
+        return sizeof(ushort);
+    }
 }

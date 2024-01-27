@@ -22,4 +22,9 @@ public class VmStore2 : VMInstructionBase
     {
 
     }
+
+    public override int GetSize()
+    {
+        return 0;
+    }
 }

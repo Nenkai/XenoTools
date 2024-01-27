@@ -8,6 +8,7 @@ using XenoTools.BinaryData;
 using XenoTools.BinaryDataSQLite;
 using XenoTools.Resources;
 using XenoTools.Script;
+using XenoTools.Script.Compiler;
 
 namespace XenoTools.CLI
 {
@@ -15,41 +16,18 @@ namespace XenoTools.CLI
     {
         static void Main(string[] args)
         {
-            var f = File.ReadAllBytes(@"D:\Games\Emu\yuzu\games\0100FF500E34A000\romfs\script\vs20510100.sb");
-            var h = new ScriptFile();
-            h.Read(f);
-
-            var comp = new ScriptCompiler();
-            comp.Compile(@"
-                function test()
-                { 
-                    var unitPC3 = unit(""player"", 3);
-                    unitPC3.x = -38.93;
-                    unitPC3.y = -1.91;
-                    unitPC3.z = -7.5900002;
-                } 
-            
-                function funcPsvLineAuto()
-                {
-
-                }
-                ");
-
-            /*
-            var t = new ResLayImg();
-            t.Read();
-            */
             Console.WriteLine("-----------------------------------------");
             Console.WriteLine($"- XenoTools by Nenkai");
             Console.WriteLine("-----------------------------------------");
             Console.WriteLine("- https://github.com/Nenkai");
             Console.WriteLine("-----------------------------------------");
 
-            var p = Parser.Default.ParseArguments<SQLiteExportVerbs, SQLiteImportVerbs>(args);
+            var p = Parser.Default.ParseArguments<CompileScriptVerbs, SQLiteExportVerbs, SQLiteImportVerbs>(args);
 
-            p.WithParsed<SQLiteExportVerbs>(Export)
-             .WithParsed<SQLiteImportVerbs>(Import)
-             .WithNotParsed(HandleNotParsedArgs);
+            p.WithParsed<CompileScriptVerbs>(CompileScript)
+              .WithParsed<SQLiteExportVerbs>(Export)
+              .WithParsed<SQLiteImportVerbs>(Import)
+              .WithNotParsed(HandleNotParsedArgs);
 
         }
 
@@ -82,6 +60,24 @@ namespace XenoTools.CLI
             }
         }
 
+        public static void CompileScript(CompileScriptVerbs compileScriptVerbs)
+        {
+
+            var comp = new ScriptCompiler();
+            var state = comp.Compile(File.ReadAllText(compileScriptVerbs.InputPath));
+
+            using (var outp = new FileStream(compileScriptVerbs.OutputPath, FileMode.Create))
+            { 
+                var gen = new ScriptCodeGen(state);
+                gen.Write(outp);
+            }
+
+            
+            var f = File.ReadAllBytes(compileScriptVerbs.OutputPath);
+            var h = new ScriptFile();
+            h.Read(f);
+
+        }
         public static void Import(SQLiteImportVerbs importVerbs)
         {
 
@@ -91,6 +87,16 @@ namespace XenoTools.CLI
         {
 
         }
+    }
+
+    [Verb("compile-script")]
+    public class CompileScriptVerbs
+    {
+        [Option('i', "input", Required = true, HelpText = "Input script source file.")]
+        public string InputPath { get; set; }
+
+        [Option('o', "output", Required = true, HelpText = "Output script file.")]
+        public string OutputPath { get; set; }
     }
 
     [Verb("bdat-to-sqlite", HelpText = "Export bdat to a SQLite file.")]

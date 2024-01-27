@@ -22,4 +22,9 @@ public class VmNop : VMInstructionBase
     {
 
     }
+
+    public override int GetSize()
+    {
+        return 0;
+    }
 }

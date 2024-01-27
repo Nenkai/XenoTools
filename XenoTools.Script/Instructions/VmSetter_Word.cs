@@ -34,4 +34,9 @@ public class VmSetter_Word : VMInstructionBase
     {
         bs.WriteUInt16(IDIndex);
     }
+
+    public override int GetSize()
+    {
+        return sizeof(ushort);
+    }
 }

@@ -34,4 +34,9 @@ public class VmCall : VMInstructionBase
     {
         bs.WriteByte(FunctionIndex);
     }
+
+    public override int GetSize()
+    {
+        return sizeof(byte);
+    }
 }

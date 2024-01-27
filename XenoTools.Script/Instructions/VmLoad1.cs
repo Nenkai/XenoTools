@@ -22,4 +22,9 @@ public class VmLoad1 : VMInstructionBase
     {
 
     }
+
+    public override int GetSize()
+    {
+        return 0;
+    }
 }

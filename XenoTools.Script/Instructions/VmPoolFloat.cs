@@ -34,4 +34,9 @@ public class VmPoolFloat : VMInstructionBase
     {
         bs.WriteByte(FloatIndex);
     }
+
+    public override int GetSize()
+    {
+        return sizeof(byte);
+    }
 }

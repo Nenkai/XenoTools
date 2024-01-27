@@ -34,4 +34,9 @@ public class VmPlugin_Word : VMInstructionBase
     {
         bs.WriteUInt16(PluginImportIndex);
     }
+
+    public override int GetSize()
+    {
+        return sizeof(ushort);
+    }
 }

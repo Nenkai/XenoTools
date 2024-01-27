@@ -34,4 +34,9 @@ public class VmSetter : VMInstructionBase
     {
         bs.WriteByte(IDIndex);
     }
+
+    public override int GetSize()
+    {
+        return sizeof(byte);
+    }
 }

@@ -34,4 +34,9 @@ public class VmPoolString : VMInstructionBase
     {
         bs.WriteByte(StringIndex);
     }
+
+    public override int GetSize()
+    {
+        return sizeof(byte);
+    }
 }

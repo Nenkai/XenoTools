@@ -34,4 +34,9 @@ public class VmPoolString_Word : VMInstructionBase
     {
         bs.WriteUInt16(StringIndex);
     }
+
+    public override int GetSize()
+    {
+        return sizeof(ushort);
+    }
 }

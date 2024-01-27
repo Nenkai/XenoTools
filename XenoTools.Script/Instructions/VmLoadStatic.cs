@@ -34,4 +34,9 @@ public class VmLoadStatic : VMInstructionBase
     {
         bs.WriteByte(StaticIndex);
     }
+
+    public override int GetSize()
+    {
+        return sizeof(byte);
+    }
 }

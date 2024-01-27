@@ -34,4 +34,9 @@ public class VmConstInteger : VMInstructionBase
     {
         bs.WriteByte(Value);
     }
+
+    public override int GetSize()
+    {
+        return sizeof(byte);
+    }
 }

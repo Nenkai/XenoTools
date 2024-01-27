@@ -24,4 +24,9 @@ public class VmJump : VMInstructionBase
     {
         bs.WriteUInt16(JumpRelativeOffset);
     }
+
+    public override int GetSize()
+    {
+        return sizeof(ushort);
+    }
 }

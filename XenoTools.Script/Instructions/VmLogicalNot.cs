@@ -22,4 +22,9 @@ public class VmLogicalNot : VMInstructionBase
     {
 
     }
+
+    public override int GetSize()
+    {
+        return 0;
+    }
 }

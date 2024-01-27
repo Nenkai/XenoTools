@@ -41,4 +41,9 @@ public class VmSwitch : VMInstructionBase
             bs.WriteUInt32(Branches[i].Offset);
         }
     }
+
+    public override int GetSize()
+    {
+        return sizeof(byte) + sizeof(uint) + (NumBranches * 8);
+    }
 }
