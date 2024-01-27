@@ -264,7 +264,7 @@ public class ScriptCodeGen
             bs.WriteInt16(func.NameID);
             bs.WriteUInt16(func.NumArguments);
             bs.WriteUInt16(0);
-            bs.WriteUInt16(0);
+            bs.WriteUInt16(func.NumLocals);
             bs.WriteInt16(func.LocalPoolIndex);
             bs.WriteInt16(0);
             bs.WriteUInt32(func.CodeStartOffset);
@@ -423,8 +423,11 @@ public class ScriptCodeGen
         bs.WriteUInt32(2); // size
 
         long offsetTableOffset = bs.Position;
-        long lastOffset = bs.Position + (_compiledState.LocalPool.Count * 2);
 
+        bs.Position += (_compiledState.LocalPool.Count * 2);
+        bs.Align(0x04, grow: true);
+
+        long lastOffset = bs.Position;
         for (int i = 0; i < _compiledState.LocalPool.Count; i++)
         {
             bs.Position = offsetTableOffset + (i * 0x02);
@@ -452,8 +455,6 @@ public class ScriptCodeGen
 
                 // This is directly copied to the stack so there's an extra 4 bytes (64 bit ptr on switch)
                 bs.WriteUInt32(0);
-
-                i++;
             }
 
             lastOffset = bs.Position;

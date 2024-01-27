@@ -13,16 +13,16 @@ public class VmJumpFalse : VMInstructionBase
 {
     public override VmInstType Type => VmInstType.JPF;
 
-    public ushort JumpRelativeOffset;
+    public short JumpRelativeOffset;
 
     public override void Read(ref SpanReader sr)
     {
-        JumpRelativeOffset = sr.ReadUInt16();
+        JumpRelativeOffset = sr.ReadInt16();
     }
 
     public override void Write(BinaryStream bs)
     {
-        bs.WriteUInt16(JumpRelativeOffset);
+        bs.WriteInt16(JumpRelativeOffset);
     }
 
     public override int GetSize()

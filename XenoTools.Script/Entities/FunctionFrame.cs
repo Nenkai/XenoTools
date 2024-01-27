@@ -10,6 +10,7 @@ public class FunctionInfo
 {
     public short NameID { get; set; }
     public ushort NumArguments { get; set; }
+    public ushort NumLocals { get; set; }
     public short LocalPoolIndex { get; set; } = -1;
     public uint CodeStartOffset { get; set; }
     public uint CodeEndOffset { get; set; }

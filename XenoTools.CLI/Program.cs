@@ -62,7 +62,6 @@ namespace XenoTools.CLI
 
         public static void CompileScript(CompileScriptVerbs compileScriptVerbs)
         {
-
             var comp = new ScriptCompiler();
             var state = comp.Compile(File.ReadAllText(compileScriptVerbs.InputPath));
 
@@ -76,7 +75,6 @@ namespace XenoTools.CLI
             var f = File.ReadAllBytes(compileScriptVerbs.OutputPath);
             var h = new ScriptFile();
             h.Read(f);
-
         }
         public static void Import(SQLiteImportVerbs importVerbs)
         {

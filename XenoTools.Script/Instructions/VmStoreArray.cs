@@ -9,24 +9,32 @@ using System.Threading.Tasks;
 
 namespace XenoTools.Script.Instructions;
 
-public class VmJump : VMInstructionBase
+public class VmStoreArray : VMInstructionBase
 {
-    public override VmInstType Type => VmInstType.JMP;
+    public override VmInstType Type => VmInstType.ST_AR;
 
-    public short JumpRelativeOffset;
+    public VmStoreArray()
+    {
+
+    }
+
+    public VmStoreArray(byte stackIndex)
+    {
+
+    }
 
     public override void Read(ref SpanReader sr)
     {
-        JumpRelativeOffset = sr.ReadInt16();
+
     }
 
     public override void Write(BinaryStream bs)
     {
-        bs.WriteInt16(JumpRelativeOffset);
+
     }
 
     public override int GetSize()
     {
-        return sizeof(ushort);
+        return 0;
     }
 }

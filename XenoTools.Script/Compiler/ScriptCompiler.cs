@@ -141,26 +141,6 @@ public class ScriptCompiler
         }
     }
 
-    private short AddIdentifier(string id)
-    {
-        if (!_identifierPool.Contains(id))
-        {
-            _identifierPool.Add(id);
-            return _lastIdentifierIndex++;
-        }
-
-        return -1;
-    }
-
-    private short AddOC(string id)
-    {
-        short identifier = AddIdentifier(id);
-        if (identifier != -1 && !_ocPool.ContainsKey(id))
-            _ocPool.Add(id, new ObjectConstructor() { NameID = identifier });
-
-        return -1;
-    }
-
     public void CompileStatements(NodeList<Statement> nodes)
     {
         foreach (var n in nodes)
@@ -174,6 +154,9 @@ public class ScriptCompiler
 
     public void CompileStatement(Node node)
     {
+        if (_currentFunctionFrame is null && (node.Type != Nodes.FunctionDeclaration && node.Type != Nodes.StaticDeclaration))
+            ThrowCompilationError(CompilationErrorMessages.StatementInTopFrame);
+
         switch (node.Type)
         {
             case Nodes.ExpressionStatement:
@@ -191,6 +174,9 @@ public class ScriptCompiler
             case Nodes.ForStatement:
                 CompileForStatement(node.As<ForStatement>()); break;
 
+            case Nodes.WhileStatement:
+                CompileWhileStatement(node.As<WhileStatement>()); break;
+
             case Nodes.StaticDeclaration:
                 CompileStaticDeclaration(node.As<StaticDeclaration>()); break;
 
@@ -204,8 +190,8 @@ public class ScriptCompiler
 
     private void CompileVariableDeclaration(VariableDeclaration varDecl)
     {
-        if (_currentFunctionFrame is null)
-            ThrowCompilationError(CompilationErrorMessages.NestedFunctionDeclaration);
+        if (_currentFunctionFrame == _mainFunction)
+            ThrowCompilationError(CompilationErrorMessages.CannotDeclareLocalsInMain);
 
         foreach (VariableDeclarator declarator in varDecl.Declarations)
         {
@@ -214,7 +200,7 @@ public class ScriptCompiler
 
             if (_currentFunctionFrame.LocalPoolIndex == -1)
             {
-                _currentFunctionFrame.LocalPoolIndex = _lastLocalPoolID;
+                _currentFunctionFrame.LocalPoolIndex = _lastLocalPoolID++;
                 _localPool.Add(new StackLocals());
             }
 
@@ -226,17 +212,14 @@ public class ScriptCompiler
             VmVariable local = ProcessDeclarator(declarator, varDecl.Kind);
             local.ID = _lastLocalID++;
             stackLocals.Locals.Add(id.Name, local);
-
-            if (declarator.Init is not null)
-            {
-                CompileExpression(declarator.Init);
-                CompileIdentifierAssignment(declarator.Id.As<Identifier>());
-            }
         }
     }
 
     private void CompileFunctionDeclaration(FunctionDeclaration funcDecl)
     {
+        if (_currentFunctionFrame is not null)
+            ThrowCompilationError(CompilationErrorMessages.NestedFunctionDeclaration);
+
         _currentFunctionFrame = _funcPool[funcDecl.Id.Name];
         _currentFunctionFrame.CodeStartOffset = _currentPc;
 
@@ -245,15 +228,22 @@ public class ScriptCompiler
         if (_currentFunctionFrame == _mainFunction)
             InsertInstruction(new VmExit());
         else
-        InsertInstruction(new VmRet());
+            InsertInstruction(new VmRet());
 
         _currentFunctionFrame.CodeEndOffset = _currentPc;
+
+        if (_currentFunctionFrame.LocalPoolIndex != -1)
+            _currentFunctionFrame.NumLocals = (ushort)_localPool[_currentFunctionFrame.LocalPoolIndex].Locals.Count;
+
         _currentFunctionFrame = null;
         _lastLocalID = 0;
     }
 
     private void CompileStaticDeclaration(StaticDeclaration staticDecl)
     {
+        if (_currentFunctionFrame is not null)
+            ThrowCompilationError(CompilationErrorMessages.StaticDeclarationInFunction);
+
         VariableDeclaration decl = staticDecl.Declaration;
         foreach (VariableDeclarator dec in decl.Declarations)
         {
@@ -261,13 +251,12 @@ public class ScriptCompiler
             if (_definedStatics.ContainsKey(id.Name))
                 ThrowCompilationError(CompilationErrorMessages.StaticAlreadyDeclared);
 
-            VmVariable local = ProcessDeclarator(dec, decl.Kind);
-            local.ID = _lastStaticID++;
+            VmVariable local = ProcessDeclarator(dec, decl.Kind, isStatic: true);
             _definedStatics.Add(id.Name, local.ID);
         }
     }
 
-    private VmVariable ProcessDeclarator(VariableDeclarator decl, VariableDeclarationKind kind)
+    private VmVariable ProcessDeclarator(VariableDeclarator decl, VariableDeclarationKind kind, bool isStatic = false)
     {
         var type = kind switch
         {
@@ -280,33 +269,36 @@ public class ScriptCompiler
         VmVariable local = new VmVariable()
         {
             Type = type,
+            ID = _lastStaticID++,
         };
 
         if (decl.Init.Type == Nodes.Literal)
         {
             Literal literal = decl.Init.As<Literal>();
             local.Value = literal.Value;
+
+            if (isStatic)
+                _statics.Add(local);
         }
         else if (decl.Init.Type == Nodes.ArrayExpression)
         {
             ArrayExpression arrayExp = decl.Init.As<ArrayExpression>();
+            local.Type = LocalType.Array;
+            local.ArraySize = (uint)arrayExp.Elements.Count;
+            local.Value = _lastStaticID;
 
-            VmVariable arrayLocal = new VmVariable();
-            arrayLocal.ID = _lastStaticID++;
-            arrayLocal.Type = LocalType.Array;
-            arrayLocal.ArraySize = (uint)arrayExp.Elements.Count;
-            arrayLocal.Value = _lastStaticID;
-            _statics.Add(arrayLocal);
+            if (isStatic)
+                _statics.Add(local);
 
-            RecurseArray(arrayExp);
+            ProcessArray(arrayExp, isStatic);
         }
         else
-            ThrowCompilationError("Unsupported declarator type");
+            ThrowCompilationError(CompilationErrorMessages.UnexpectedVariableDeclaratorType);
 
         return local;
     }
 
-    private void RecurseArray(ArrayExpression arrayExp)
+    private void ProcessArray(ArrayExpression arrayExp, bool isStatic = false)
     {
         int start = _lastStaticID;
         foreach (var elem in arrayExp.Elements)
@@ -356,7 +348,7 @@ public class ScriptCompiler
                 tmp.ArraySize = (uint)arrayExp.Elements.Count;
                 tmp.Value = _lastStaticID;
                 
-                RecurseArray(arrayExp.Elements[i].As<ArrayExpression>());
+                ProcessArray(arrayExp.Elements[i].As<ArrayExpression>());
             }
         }
 
@@ -364,7 +356,10 @@ public class ScriptCompiler
 
     private void CompileExpressionStatement(ExpressionStatement expStatement)
     {
-        CompileExpression(expStatement.Expression);
+        if (expStatement.Expression.Type == Nodes.UpdateExpression)
+            CompileUpdateExpression(expStatement.Expression.As<UpdateExpression>(), keepResult: false);
+        else
+            CompileExpression(expStatement.Expression);
     }
 
     private void CompileExpression(Expression exp)
@@ -395,9 +390,51 @@ public class ScriptCompiler
             case Nodes.LogicalExpression:
                 CompileLogicalExpression(exp.As<BinaryExpression>()); break;
 
+            case Nodes.MemberExpression:
+                CompileMemberExpression(exp.As<MemberExpression>()); break;
+
+            case Nodes.UpdateExpression:
+                CompileUpdateExpression(exp.As<UpdateExpression>()); break;
+
             default:
                 ThrowCompilationError(CompilationErrorMessages.UnsupportedExpression);
                 break;
+        }
+    }
+
+    private void CompileUpdateExpression(UpdateExpression exp, bool keepResult = true)
+    {
+        CompileExpression(exp.Argument);
+
+        VMInstructionBase inst = exp.Operator switch
+        {
+            UnaryOperator.Increment => new VmIncrement(),
+            UnaryOperator.Decrement => new VmDecrement(),
+            _ => throw new Exception("aa"),
+        };
+
+        InsertInstruction(inst);
+
+        CompileExpressionAssignment(exp.Argument);
+
+        if (keepResult)
+            CompileExpression(exp.Argument);
+    }
+
+    private void CompileMemberExpression(MemberExpression exp)
+    {
+        if (exp is ComputedMemberExpression compMember)
+        {
+            if (compMember.Property.Type == Nodes.Literal)
+            {
+                Literal lit = compMember.Property.As<Literal>();
+                if (lit.NumericTokenType != NumericTokenType.Integer)
+                    ThrowCompilationError(CompilationErrorMessages.ExpectedExpressionOrNumberInArrayAccess);
+            }
+
+            CompileExpression(compMember.Object);
+            CompileExpression(compMember.Property);
+            InsertInstruction(new VmLoadArray());
         }
     }
 
@@ -424,15 +461,15 @@ public class ScriptCompiler
             switch (literal.NumericTokenType)
             {
                 case NumericTokenType.Float:
-                    CompileFloat(-(float)literal.Value);
+                    CompileFloatLiteral(-(float)literal.Value);
                     break;
 
                 case NumericTokenType.Integer:
-                    CompileInteger(-(int)literal.Value);
+                    CompileIntegerLiteral(-(int)literal.Value);
                     break;
 
                 default:
-                    ThrowCompilationError("Unexpected syntax");
+                    ThrowCompilationError(CompilationErrorMessages.UnaryInvalidLiteralType);
                     break;
             }
 
@@ -447,13 +484,46 @@ public class ScriptCompiler
         if (assignmentExpression.Operator == AssignmentOperator.Assign)
         {
             CompileExpression(assignmentExpression.Right);
-
-            if (assignmentExpression.Left.Type == Nodes.Identifier)
+            CompileExpressionAssignment(assignmentExpression.Left);
+        }
+        else
+        {
+            VMInstructionBase inst = assignmentExpression.Operator switch
             {
-                Identifier id = assignmentExpression.Left.As<Identifier>();
-                CompileIdentifierAssignment(id);
-            }
-            else if (assignmentExpression.Left is AttributeMemberExpression attrMemberExpr)
+                AssignmentOperator.PlusAssign => new VmAdd(),
+                AssignmentOperator.MinusAssign => new VmSubtract(),
+                AssignmentOperator.TimesAssign => new VmMultiply(),
+                AssignmentOperator.DivideAssign => new VmDivide(),
+                AssignmentOperator.ModuloAssign => new VmModulo(),
+                AssignmentOperator.LeftShiftAssign => new VmBitwiseLeftShift(),
+                AssignmentOperator.RightShiftAssign => new VmBitwiseRightShift(),
+                AssignmentOperator.BitwiseOrAssign => new VmBitwiseOr(),
+                AssignmentOperator.BitwiseAndAssign => new VmBitwiseAnd(),
+                _ => null
+            };
+
+            if (inst is null)
+                ThrowCompilationError(CompilationErrorMessages.UnsupportedAssignmentExpression);
+
+            CompileExpression(assignmentExpression.Left);
+            CompileExpression(assignmentExpression.Right);
+
+            InsertInstruction(inst);
+
+            CompileExpressionAssignment(assignmentExpression.Left);
+        }
+
+    }
+
+    private void CompileExpressionAssignment(Expression exp)
+    {
+        if (exp.Type == Nodes.Identifier)
+        {
+            CompileIdentifierAssignment(exp.As<Identifier>());
+        }
+        else if (exp.Type == Nodes.MemberExpression)
+        {
+            if (exp is AttributeMemberExpression attrMemberExpr)
             {
                 if (attrMemberExpr.Object.Type != Nodes.Identifier || attrMemberExpr.Property.Type != Nodes.Identifier)
                     ThrowCompilationError("Incorrect");
@@ -461,6 +531,8 @@ public class ScriptCompiler
                 CompileIdentifier(attrMemberExpr.Object.As<Identifier>());
 
                 Identifier propIdentifier = attrMemberExpr.Property.As<Identifier>();
+                AddIdentifier(propIdentifier.Name);
+
                 int idIndex = _identifierPool.IndexOf(propIdentifier.Name);
 
                 if (idIndex == -1)
@@ -473,11 +545,29 @@ public class ScriptCompiler
                 else
                     ThrowCompilationError("id index too large");
             }
+            else if (exp is ComputedMemberExpression compMemberExpr)
+            {
+                if (compMemberExpr.Object.Type != Nodes.Identifier)
+                    ThrowCompilationError("Incorrect");
+
+                CompileExpression(compMemberExpr.Object.As<Identifier>());
+
+                if (compMemberExpr.Property.Type == Nodes.Literal)
+                {
+                    Literal lit = compMemberExpr.Property.As<Literal>();
+                    if (lit.NumericTokenType != NumericTokenType.Integer)
+                        ThrowCompilationError(CompilationErrorMessages.ExpectedExpressionOrNumberInArrayAccess);
+                }
+
+                CompileExpression(compMemberExpr.Property);
+
+                InsertInstruction(new VmStoreArray());
+            }
             else
-                ThrowCompilationError("Not supported");
+                ThrowCompilationError(CompilationErrorMessages.UnexpectedMemberAssignmentType);
         }
         else
-            ThrowCompilationError(CompilationErrorMessages.UnsupportedAssignmentExpression);
+            ThrowCompilationError(CompilationErrorMessages.InvalidAssignmentTarget);
     }
 
     private void CompileIdentifierAssignment(Identifier id)
@@ -537,14 +627,14 @@ public class ScriptCompiler
 
     private void CompileIfStatement(IfStatement ifStatement)
     {
-        CompileExpression(ifStatement.Test);
+        CompileTestStatement(ifStatement.Test);
 
         var jumpIfFalse = new VmJumpFalse();
         InsertInstruction(jumpIfFalse);
 
         uint previousPc = (ushort)_currentPc;
         CompileStatement(ifStatement.Consequent);
-        jumpIfFalse.JumpRelativeOffset = (ushort)(jumpIfFalse.GetSize() + (_currentPc - previousPc));
+        jumpIfFalse.JumpRelativeOffset = (short)(jumpIfFalse.GetSize() + (_currentPc - previousPc));
 
         if (ifStatement.Alternate is not null)
         {
@@ -553,25 +643,57 @@ public class ScriptCompiler
             previousPc = (ushort)_currentPc;
 
             CompileStatement(ifStatement.Alternate);
-            alternateSkip.JumpRelativeOffset = (ushort)(jumpIfFalse.GetSize() + (_currentPc - previousPc));
+            alternateSkip.JumpRelativeOffset = (short)(jumpIfFalse.GetSize() + (_currentPc - previousPc));
         }
     }
 
     private void CompileForStatement(ForStatement forStatement)
     {
         CompileStatement(forStatement.Init);
-        CompileExpression(forStatement.Test);
 
-        var jumpBack = new VmJump();
-        jumpBack.JumpRelativeOffset = 0; // Todo
+        int testOffset = (int)_currentPc;
+        CompileTestStatement(forStatement.Test);
 
+        int bodyStartOffset = (int)_currentPc;
         var bodyJump = new VmJumpFalse();
         InsertInstruction(bodyJump);
         CompileStatement(forStatement.Body);
         CompileExpression(forStatement.Update);
-        bodyJump.JumpRelativeOffset = 0; // TODO
 
+        var jumpBack = new VmJump();
+        jumpBack.JumpRelativeOffset = (short)(testOffset - _currentPc);
         InsertInstruction(jumpBack);
+
+        bodyJump.JumpRelativeOffset = (short)(_currentPc - bodyStartOffset);
+    }
+
+    private void CompileWhileStatement(WhileStatement whileStatement)
+    {
+        int testOffset = (int)_currentPc;
+        CompileTestStatement(whileStatement.Test);
+
+        int bodyStartOffset = (int)_currentPc;
+        var bodyJump = new VmJumpFalse();
+        InsertInstruction(bodyJump);
+
+        CompileStatement(whileStatement.Body);
+        var jumpBack = new VmJump();
+        jumpBack.JumpRelativeOffset = (short)(testOffset - _currentPc);
+        InsertInstruction(jumpBack);
+
+        bodyJump.JumpRelativeOffset = (short)(_currentPc - bodyStartOffset);
+    }
+
+    private void CompileTestStatement(Expression testExpression)
+    {
+        if (testExpression.Type == Nodes.UpdateExpression)
+        {
+            CompileUpdateExpression(testExpression as UpdateExpression);
+        }
+        else
+        {
+            CompileExpression(testExpression);
+        }
     }
 
     private void CompileCall(CallExpression call)
@@ -582,7 +704,7 @@ public class ScriptCompiler
             CompileExpression(arg);
         }
 
-        CompileInteger(call.Arguments.Count);
+        CompileIntegerLiteral(call.Arguments.Count);
 
         if (call.Callee is Identifier funcIdentifier)
         {
@@ -727,11 +849,10 @@ public class ScriptCompiler
         switch (type)
         {
             case DeclType.Static:
-                int staticIndex = 0; // fixme _statics.IndexOf(identifier.Name);
-                if (staticIndex == -1)
+                if (!_definedStatics.TryGetValue(identifier.Name, out int staticIdx))
                     ThrowCompilationError("aa");
 
-                InsertInstruction(new VmLoadStatic((byte)staticIndex));
+                InsertInstruction(new VmLoadStatic((byte)staticIdx));
                 break;
 
             case DeclType.Function:
@@ -773,11 +894,11 @@ public class ScriptCompiler
     {
         if (literal.NumericTokenType == NumericTokenType.Integer)
         {
-            CompileInteger((int)literal.Value);
+            CompileIntegerLiteral((int)literal.Value);
         }
         else if (literal.NumericTokenType == NumericTokenType.Float)
         {
-            CompileFloat((float)literal.Value);
+            CompileFloatLiteral((float)literal.Value);
         }
         else if (literal.TokenType == TokenType.BooleanLiteral)
         {
@@ -797,7 +918,7 @@ public class ScriptCompiler
         }
         else
         {
-            throw new NotImplementedException();
+            ThrowCompilationError(CompilationErrorMessages.UnaryInvalidLiteral);
         }
     }
 
@@ -815,7 +936,7 @@ public class ScriptCompiler
             ThrowCompilationError(CompilationErrorMessages.PoolIndexTooBig);
     }
 
-    private void CompileFloat(float value)
+    private void CompileFloatLiteral(float value)
     {
         if (!_fixedPool.Contains(value))
             _fixedPool.Add(value);
@@ -829,7 +950,7 @@ public class ScriptCompiler
             ThrowCompilationError(CompilationErrorMessages.PoolIndexTooBig);
     }
 
-    private void CompileInteger(int value)
+    private void CompileIntegerLiteral(int value)
     {
         switch (value)
         {
@@ -864,6 +985,27 @@ public class ScriptCompiler
                 break;
         }
     }
+
+    private short AddIdentifier(string id)
+    {
+        if (!_identifierPool.Contains(id))
+        {
+            _identifierPool.Add(id);
+            return _lastIdentifierIndex++;
+        }
+
+        return -1;
+    }
+
+    private short AddOC(string id)
+    {
+        short identifier = AddIdentifier(id);
+        if (identifier != -1 && !_ocPool.ContainsKey(id))
+            _ocPool.Add(id, new ObjectConstructor() { NameID = identifier });
+
+        return -1;
+    }
+
 
     private void InsertInstruction(VMInstructionBase inst)
     {
