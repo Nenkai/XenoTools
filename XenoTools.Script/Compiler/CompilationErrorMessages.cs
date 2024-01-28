@@ -30,5 +30,7 @@ public class CompilationErrorMessages
     public const string StaticDeclarationInFunction = "Invalid static declaration inside function";
     public const string UnexpectedVariableDeclaratorType = "Unexpected variable declaration type";
     public const string StatementInTopFrame = "Non static or function declarations are not allowed in the top frame";
+    public const string BreakWithoutContextualScope = "Invalid break statement without loop or switch block";
+    public const string ContinueWithoutContextualScope = "Invalid continue statement without loop block";
 
 }

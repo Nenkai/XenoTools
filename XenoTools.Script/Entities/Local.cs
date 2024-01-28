@@ -13,7 +13,6 @@ public class VmVariable
     public LocalType Type { get; set; }
     public uint ArraySize { get; set; }
     public object Value { get; set; }
-
 }
 
 // getScTypeName

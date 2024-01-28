@@ -11,7 +11,7 @@ namespace XenoTools.Script.Instructions;
 
 public class VmLoadFalse : VMInstructionBase
 {
-    public override VmInstType Type => VmInstType.LD_FUNC;
+    public override VmInstType Type => VmInstType.LD_FALSE;
 
     public override void Read(ref SpanReader sr)
     {

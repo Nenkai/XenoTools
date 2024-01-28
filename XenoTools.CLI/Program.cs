@@ -71,7 +71,6 @@ namespace XenoTools.CLI
                 gen.Write(outp);
             }
 
-            
             var f = File.ReadAllBytes(compileScriptVerbs.OutputPath);
             var h = new ScriptFile();
             h.Read(f);

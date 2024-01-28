@@ -48,6 +48,16 @@ public class ScriptCompiler
     private FunctionInfo _currentFunctionFrame;
     private uint _currentPc;
 
+    /// <summary>
+    /// To keep track of the current break controlled blocks, to compile break statements.
+    /// </summary>
+    private Stack<ControlBlock> _breakControlBlocks = new();
+
+    /// <summary>
+    /// To keep track of the current continue controlled blocks, to compile continue statements.
+    /// </summary>
+    private Stack<ControlBlock> _continueControlBlocks = new();
+
     // for the final state
     private List<VMInstructionBase> _code = [];
     private List<int> _intPool = [];
@@ -177,11 +187,20 @@ public class ScriptCompiler
             case Nodes.WhileStatement:
                 CompileWhileStatement(node.As<WhileStatement>()); break;
 
+            case Nodes.DoWhileStatement:
+                CompileDoWhileStatement(node.As<DoWhileStatement>()); break;
+
             case Nodes.StaticDeclaration:
                 CompileStaticDeclaration(node.As<StaticDeclaration>()); break;
 
             case Nodes.VariableDeclaration:
                 CompileVariableDeclaration(node.As<VariableDeclaration>()); break;
+
+            case Nodes.BreakStatement:
+                CompileBreak(node.As<BreakStatement>()); break;
+
+            case Nodes.ContinueStatement:
+                CompileContinue(node.As<ContinueStatement>()); break;
 
             default:
                 throw new NotImplementedException();
@@ -266,7 +285,7 @@ public class ScriptCompiler
             VariableDeclarationKind.Array => LocalType.Array,
         };
 
-        VmVariable local = new VmVariable()
+        VmVariable scVar = new VmVariable()
         {
             Type = type,
             ID = _lastStaticID++,
@@ -275,27 +294,27 @@ public class ScriptCompiler
         if (decl.Init.Type == Nodes.Literal)
         {
             Literal literal = decl.Init.As<Literal>();
-            local.Value = literal.Value;
+            scVar.Value = literal.Value;
 
             if (isStatic)
-                _statics.Add(local);
+                _statics.Add(scVar);
         }
         else if (decl.Init.Type == Nodes.ArrayExpression)
         {
             ArrayExpression arrayExp = decl.Init.As<ArrayExpression>();
-            local.Type = LocalType.Array;
-            local.ArraySize = (uint)arrayExp.Elements.Count;
-            local.Value = _lastStaticID;
+            scVar.Type = LocalType.Array;
+            scVar.ArraySize = (uint)arrayExp.Elements.Count;
+            scVar.Value = _lastStaticID;
 
             if (isStatic)
-                _statics.Add(local);
+                _statics.Add(scVar);
 
             ProcessArray(arrayExp, isStatic);
         }
         else
             ThrowCompilationError(CompilationErrorMessages.UnexpectedVariableDeclaratorType);
 
-        return local;
+        return scVar;
     }
 
     private void ProcessArray(ArrayExpression arrayExp, bool isStatic = false)
@@ -303,50 +322,50 @@ public class ScriptCompiler
         int start = _lastStaticID;
         foreach (var elem in arrayExp.Elements)
         {
-            VmVariable elemLocal = new VmVariable();
-            elemLocal.ID = _lastStaticID++;
+            VmVariable arrElem = new VmVariable();
+            arrElem.ID = _lastStaticID++;
 
             if (elem.Type == Nodes.ArrayExpression)
             {
-                elemLocal.Type = LocalType.Array;
+                arrElem.Type = LocalType.Array;
             }
             else if (elem.Type == Nodes.Literal)
             {
                 Literal literal = elem.As<Literal>();
                 if (literal.NumericTokenType == NumericTokenType.Integer)
                 {
-                    elemLocal.Type = LocalType.Int;
-                    elemLocal.Value = literal.Value;
+                    arrElem.Type = LocalType.Int;
+                    arrElem.Value = literal.Value;
                 }
                 else if (literal.NumericTokenType == NumericTokenType.Float)
                 {
-                    elemLocal.Type = LocalType.Fixed;
-                    elemLocal.Value = literal.Value;
+                    arrElem.Type = LocalType.Fixed;
+                    arrElem.Value = literal.Value;
                 }
                 else if (literal.TokenType == TokenType.StringLiteral)
                 {
-                    elemLocal.Type = LocalType.String;
+                    arrElem.Type = LocalType.String;
 
                     if (!_stringPool.Contains(literal.Value))
                         _stringPool.Add((string)literal.Value);
 
-                    elemLocal.Value = _stringPool.IndexOf((string)literal.Value);
+                    arrElem.Value = _stringPool.IndexOf((string)literal.Value);
                 }
             }
             else
                 ThrowCompilationError("Unsupported array element");
 
-            _statics.Add(elemLocal);
+            _statics.Add(arrElem);
         }
 
         for (int i = 0; i < arrayExp.Elements.Count; i++)
         {
-            VmVariable tmp = _statics[start + i];
-            if (tmp.Type == LocalType.Array)
+            VmVariable subArr = _statics[start + i];
+            if (subArr.Type == LocalType.Array)
             {
-                tmp.Type = LocalType.Array;
-                tmp.ArraySize = (uint)arrayExp.Elements.Count;
-                tmp.Value = _lastStaticID;
+                subArr.Type = LocalType.Array;
+                subArr.ArraySize = (uint)arrayExp.Elements.Count;
+                subArr.Value = _lastStaticID;
                 
                 ProcessArray(arrayExp.Elements[i].As<ArrayExpression>());
             }
@@ -410,7 +429,7 @@ public class ScriptCompiler
         {
             UnaryOperator.Increment => new VmIncrement(),
             UnaryOperator.Decrement => new VmDecrement(),
-            _ => throw new Exception("aa"),
+            _ => throw new Exception("Unsupported update expression"),
         };
 
         InsertInstruction(inst);
@@ -526,7 +545,7 @@ public class ScriptCompiler
             if (exp is AttributeMemberExpression attrMemberExpr)
             {
                 if (attrMemberExpr.Object.Type != Nodes.Identifier || attrMemberExpr.Property.Type != Nodes.Identifier)
-                    ThrowCompilationError("Incorrect");
+                    ThrowCompilationError("Invalid attribute member expression object/property type");
 
                 CompileIdentifier(attrMemberExpr.Object.As<Identifier>());
 
@@ -547,10 +566,7 @@ public class ScriptCompiler
             }
             else if (exp is ComputedMemberExpression compMemberExpr)
             {
-                if (compMemberExpr.Object.Type != Nodes.Identifier)
-                    ThrowCompilationError("Incorrect");
-
-                CompileExpression(compMemberExpr.Object.As<Identifier>());
+                CompileExpression(compMemberExpr.Object);
 
                 if (compMemberExpr.Property.Type == Nodes.Literal)
                 {
@@ -629,12 +645,12 @@ public class ScriptCompiler
     {
         CompileTestStatement(ifStatement.Test);
 
+        uint previousPc = (ushort)_currentPc;
         var jumpIfFalse = new VmJumpFalse();
         InsertInstruction(jumpIfFalse);
 
-        uint previousPc = (ushort)_currentPc;
         CompileStatement(ifStatement.Consequent);
-        jumpIfFalse.JumpRelativeOffset = (short)(jumpIfFalse.GetSize() + (_currentPc - previousPc));
+        jumpIfFalse.JumpRelativeOffset = (short)((_currentPc - previousPc));
 
         if (ifStatement.Alternate is not null)
         {
@@ -643,34 +659,54 @@ public class ScriptCompiler
             previousPc = (ushort)_currentPc;
 
             CompileStatement(ifStatement.Alternate);
-            alternateSkip.JumpRelativeOffset = (short)(jumpIfFalse.GetSize() + (_currentPc - previousPc));
+            alternateSkip.JumpRelativeOffset = (short)((_currentPc - previousPc));
         }
     }
 
     private void CompileForStatement(ForStatement forStatement)
     {
-        CompileStatement(forStatement.Init);
+        LoopBlock loopBlock = EnterLoop();
+
+        if (forStatement.Init is not null)
+            CompileStatement(forStatement.Init);
 
         int testOffset = (int)_currentPc;
-        CompileTestStatement(forStatement.Test);
+        if (forStatement.Test is not null)
+            CompileTestStatement(forStatement.Test);
 
         int bodyStartOffset = (int)_currentPc;
         var bodyJump = new VmJumpFalse();
         InsertInstruction(bodyJump);
         CompileStatement(forStatement.Body);
-        CompileExpression(forStatement.Update);
+
+        if (forStatement.Update is not null)
+            CompileTestStatement(forStatement.Update);
 
         var jumpBack = new VmJump();
         jumpBack.JumpRelativeOffset = (short)(testOffset - _currentPc);
         InsertInstruction(jumpBack);
 
+        // Reached bottom, proceed to do update
+        // But first, process continue if any
+        foreach (var (JumpLocation, Instruction) in loopBlock.ContinueJumps)
+            Instruction.JumpRelativeOffset = (short)(testOffset - JumpLocation);
+
         bodyJump.JumpRelativeOffset = (short)(_currentPc - bodyStartOffset);
+
+        // Process break jumps before doing the final exit
+        foreach (var (JumpLocation, Instruction) in loopBlock.BreakJumps)
+            Instruction.JumpRelativeOffset = (short)(_currentPc - JumpLocation);
+
+        LeaveLoop();
     }
 
     private void CompileWhileStatement(WhileStatement whileStatement)
     {
+        LoopBlock loopBlock = EnterLoop();
+
         int testOffset = (int)_currentPc;
-        CompileTestStatement(whileStatement.Test);
+        if (whileStatement is not null)
+            CompileTestStatement(whileStatement.Test);
 
         int bodyStartOffset = (int)_currentPc;
         var bodyJump = new VmJumpFalse();
@@ -681,18 +717,95 @@ public class ScriptCompiler
         jumpBack.JumpRelativeOffset = (short)(testOffset - _currentPc);
         InsertInstruction(jumpBack);
 
+        // Reached bottom, proceed to do update
+        // But first, process continue if any
+        foreach (var (JumpLocation, Instruction) in loopBlock.ContinueJumps)
+            Instruction.JumpRelativeOffset = (short)(testOffset - JumpLocation);
+
         bodyJump.JumpRelativeOffset = (short)(_currentPc - bodyStartOffset);
+
+        // Process break jumps before doing the final exit
+        foreach (var (JumpLocation, Instruction) in loopBlock.BreakJumps)
+            Instruction.JumpRelativeOffset = (short)(_currentPc - JumpLocation);
+
+        LeaveLoop();
+    }
+
+    private void CompileDoWhileStatement(DoWhileStatement doWhile)
+    {
+        LoopBlock loopBlock = EnterLoop();
+
+        int bodyStartOffset = (int)_currentPc;
+        CompileStatement(doWhile.Body);
+
+        int testInsOffset = (int)_currentPc;
+        if (doWhile.Test is not null)
+            CompileExpression(doWhile.Test);
+
+        // Reached bottom, proceed to do update
+        // But first, process continue if any
+        foreach (var (JumpLocation, Instruction) in loopBlock.ContinueJumps)
+            Instruction.JumpRelativeOffset = (short)(testInsOffset - JumpLocation);
+
+        int endloopJumperOffset = (short)_currentPc;
+        var jumpBack = new VmJumpFalse();
+        InsertInstruction(jumpBack);
+
+        var startJmp = new VmJump();
+        startJmp.JumpRelativeOffset = (short)(bodyStartOffset - _currentPc);
+        InsertInstruction(startJmp);
+
+        // Process break jumps before doing the final exit
+        int loopEndIndex = (int)_currentPc;
+        foreach (var (JumpLocation, Instruction) in loopBlock.BreakJumps)
+            Instruction.JumpRelativeOffset = (short)(loopEndIndex - JumpLocation);
+
+        jumpBack.JumpRelativeOffset = (short)(_currentPc - endloopJumperOffset);
+        LeaveLoop();
     }
 
     private void CompileTestStatement(Expression testExpression)
     {
         if (testExpression.Type == Nodes.UpdateExpression)
         {
-            CompileUpdateExpression(testExpression as UpdateExpression);
+            CompileUpdateExpression(testExpression as UpdateExpression, keepResult: false);
         }
         else
         {
             CompileExpression(testExpression);
+        }
+    }
+
+    public void CompileContinue(ContinueStatement continueStatement)
+    {
+        if (_continueControlBlocks.Count == 0)
+            ThrowCompilationError(CompilationErrorMessages.ContinueWithoutContextualScope);
+
+        LoopBlock loop = (LoopBlock)GetLastContinueControlledScope();
+
+        VmJump continueJmp = new VmJump();
+        loop.ContinueJumps.Add(((int)_currentPc, continueJmp));
+        InsertInstruction(continueJmp);
+    }
+
+    public void CompileBreak(BreakStatement breakStatement)
+    {
+        var scope = GetLastBreakControlledScope();
+        if (scope is LoopBlock loopCtx)
+        {
+            VmJump breakJmp = new VmJump();
+            loopCtx.BreakJumps.Add(((int)_currentPc, breakJmp));
+            InsertInstruction(breakJmp);
+        }
+        else if (scope is SwitchBlock swContext)
+        {
+            VmJump breakJmp = new VmJump();
+            swContext.BreakJumps.Add(((int)_currentPc, breakJmp));
+            InsertInstruction(breakJmp);
+        }
+        else
+        {
+            ThrowCompilationError(CompilationErrorMessages.BreakWithoutContextualScope);
         }
     }
 
@@ -1006,6 +1119,35 @@ public class ScriptCompiler
         return -1;
     }
 
+    private void LeaveLoop()
+    {
+        _breakControlBlocks.Pop();
+        _continueControlBlocks.Pop();
+    }
+
+    private LoopBlock EnterLoop()
+    {
+        LoopBlock loopCtx = new LoopBlock();
+        _breakControlBlocks.Push(loopCtx);
+        _continueControlBlocks.Push(loopCtx);
+        return loopCtx;
+    }
+
+    public ControlBlock GetLastBreakControlledScope()
+    {
+        if (_breakControlBlocks.Count > 0)
+            return _breakControlBlocks.Peek();
+
+        return null;
+    }
+
+    public ControlBlock GetLastContinueControlledScope()
+    {
+        if (_continueControlBlocks.Count > 0)
+            return _continueControlBlocks.Peek();
+
+        return null;
+    }
 
     private void InsertInstruction(VMInstructionBase inst)
     {
