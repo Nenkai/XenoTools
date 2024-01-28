@@ -22,11 +22,11 @@ namespace XenoTools.CLI
             Console.WriteLine("- https://github.com/Nenkai");
             Console.WriteLine("-----------------------------------------");
 
-            var p = Parser.Default.ParseArguments<CompileScriptVerbs, SQLiteExportVerbs, SQLiteImportVerbs>(args);
+            var p = Parser.Default.ParseArguments<CompileScriptVerbs, SQLiteExportVerbs/*, SQLiteImportVerbs*/>(args);
 
             p.WithParsed<CompileScriptVerbs>(CompileScript)
               .WithParsed<SQLiteExportVerbs>(Export)
-              .WithParsed<SQLiteImportVerbs>(Import)
+              /*.WithParsed<SQLiteImportVerbs>(Import)*/
               .WithNotParsed(HandleNotParsedArgs);
 
         }
@@ -39,7 +39,7 @@ namespace XenoTools.CLI
                 return;
             }
 
-            foreach (var ii in Directory.GetFiles("D:\\Games\\Emu\\yuzu\\games\\0100FF500E34A000\\romfs\\bdat\\", "*.bdat", SearchOption.TopDirectoryOnly))
+            foreach (var ii in Directory.GetFiles(exportVerbs.InputPath, "*.bdat", SearchOption.TopDirectoryOnly))
             {
                 var bdat = new Bdat();
                 bdat.Regist(ii);
@@ -75,6 +75,7 @@ namespace XenoTools.CLI
             var h = new ScriptFile();
             h.Read(f);
         }
+
         public static void Import(SQLiteImportVerbs importVerbs)
         {
 

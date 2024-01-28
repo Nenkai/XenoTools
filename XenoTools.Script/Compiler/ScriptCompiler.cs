@@ -202,8 +202,12 @@ public class ScriptCompiler
             case Nodes.ContinueStatement:
                 CompileContinue(node.As<ContinueStatement>()); break;
 
+            case Nodes.SwitchStatement:
+                CompileSwitch(node.As<SwitchStatement>()); break;
+
             default:
-                throw new NotImplementedException();
+                ThrowCompilationError(CompilationErrorMessages.UnsupportedStatementType);
+                break;
         }
     }
 
@@ -353,7 +357,7 @@ public class ScriptCompiler
                 }
             }
             else
-                ThrowCompilationError("Unsupported array element");
+                ThrowCompilationError(CompilationErrorMessages.UnsupportedArrayElement);
 
             _statics.Add(arrElem);
         }
@@ -545,7 +549,7 @@ public class ScriptCompiler
             if (exp is AttributeMemberExpression attrMemberExpr)
             {
                 if (attrMemberExpr.Object.Type != Nodes.Identifier || attrMemberExpr.Property.Type != Nodes.Identifier)
-                    ThrowCompilationError("Invalid attribute member expression object/property type");
+                    ThrowCompilationError(CompilationErrorMessages.InvalidAttributeMemberExpressionAssignment);
 
                 CompileIdentifier(attrMemberExpr.Object.As<Identifier>());
 
@@ -553,16 +557,15 @@ public class ScriptCompiler
                 AddIdentifier(propIdentifier.Name);
 
                 int idIndex = _identifierPool.IndexOf(propIdentifier.Name);
-
                 if (idIndex == -1)
-                    ThrowCompilationError("huh");
+                    ThrowCompilationError("bug? identifier not found?");
 
                 if (idIndex <= byte.MaxValue)
                     InsertInstruction(new VmSetter((byte)idIndex));
                 else if (idIndex <= ushort.MaxValue)
                     InsertInstruction(new VmSetter_Word((ushort)idIndex));
                 else
-                    ThrowCompilationError("id index too large");
+                    ThrowCompilationError(CompilationErrorMessages.ExceededMaximumIdentifierCount);
             }
             else if (exp is ComputedMemberExpression compMemberExpr)
             {
@@ -623,6 +626,53 @@ public class ScriptCompiler
                 throw new NotImplementedException();
         }
     }
+
+    public void CompileSwitch(SwitchStatement switchStatement)
+    {
+        SwitchBlock switchCtx = EnterSwitch();
+
+        int startOffset = (int)_currentPc;
+
+        var swInstruction = new VmSwitch();
+        InsertInstruction(swInstruction);
+
+        Dictionary<SwitchCase, VmJump> caseBodyJumps = new();
+
+        int numBranches = 0;
+        for (int i = 0; i < switchStatement.Cases.Count; i++)
+        {
+            SwitchCase swCase = switchStatement.Cases[i];
+            if (swCase.Test is not null) // Actual case
+            {
+                if (swCase.Test.Type != Nodes.Literal)
+                    ThrowCompilationError("Expected integer for switch case test");
+
+                Literal lit = swCase.Test.As<Literal>();
+                swInstruction.Branches.Add(new VmSwitch.VmSwitchBranch(
+                    (int)lit.Value,
+                    (uint)(_currentPc - startOffset)
+                ));
+
+                CompileStatements(swCase.Consequent);
+                numBranches++;
+
+                if (numBranches > byte.MaxValue)
+                    ThrowCompilationError(CompilationErrorMessages.TooManySwitchCases);
+            }
+        }
+
+        // Update break case jumps
+        for (int i = 0; i < switchCtx.BreakJumps.Count; i++)
+        {
+            (int PC, VmJump Instruction) swCase = switchCtx.BreakJumps[i];
+            swCase.Instruction.JumpRelativeOffset = (short)(_currentPc - swCase.PC);
+        }
+
+        swInstruction.NumBranches = (byte)numBranches;
+
+        LeaveSwitch();
+    }
+
 
     private DeclType GetVarType(string identifier)
     {
@@ -854,7 +904,7 @@ public class ScriptCompiler
                 else if (idx <= ushort.MaxValue)
                     InsertInstruction(new VmSend_Word((ushort)idx));
                 else
-                    ThrowCompilationError("Idx too large");
+                    ThrowCompilationError(CompilationErrorMessages.ExceededMaximumIdentifierCount);
             }
             else if (call.Callee is StaticMemberExpression)
             {
@@ -883,11 +933,11 @@ public class ScriptCompiler
                 else if (pluginImport.ID >= 0 && pluginImport.ID <= ushort.MaxValue)
                     InsertInstruction(new VmSend_Word((ushort)pluginImport.ID));
                 else
-                    ThrowCompilationError("Idx too large");
+                    ThrowCompilationError(CompilationErrorMessages.ExceededMaximumPluginImports);
             }
         }
         else
-            ThrowCompilationError("Unsupported callee type");
+            ThrowCompilationError(CompilationErrorMessages.UnsupportedCallType);
     }
 
     private void CompileBinaryExpression(BinaryExpression binExpression)
@@ -952,7 +1002,6 @@ public class ScriptCompiler
             default:
                 break;
         }
-        ;
     }
 
     private void CompileIdentifier(Identifier identifier)
@@ -963,7 +1012,7 @@ public class ScriptCompiler
         {
             case DeclType.Static:
                 if (!_definedStatics.TryGetValue(identifier.Name, out int staticIdx))
-                    ThrowCompilationError("aa");
+                    ThrowCompilationError("bug? Undeclared static?");
 
                 InsertInstruction(new VmLoadStatic((byte)staticIdx));
                 break;
@@ -976,7 +1025,7 @@ public class ScriptCompiler
             case DeclType.Local:
                 int idIndex = _localPool[_currentFunctionFrame.LocalPoolIndex].Locals[identifier.Name].ID;
                 if (idIndex == -1)
-                    ThrowCompilationError("aa");
+                    ThrowCompilationError("bug? Undeclared local?");
 
                 switch (idIndex)
                 {
@@ -1046,7 +1095,7 @@ public class ScriptCompiler
         else if (idx < ushort.MaxValue)
             InsertInstruction(new VmPoolString_Word((ushort)idx));
         else
-            ThrowCompilationError(CompilationErrorMessages.PoolIndexTooBig);
+            ThrowCompilationError(CompilationErrorMessages.StringPoolIndexTooBig);
     }
 
     private void CompileFloatLiteral(float value)
@@ -1060,7 +1109,7 @@ public class ScriptCompiler
         else if (idx <= ushort.MaxValue)
             InsertInstruction(new VmPoolFloat_Word((ushort)idx));
         else
-            ThrowCompilationError(CompilationErrorMessages.PoolIndexTooBig);
+            ThrowCompilationError(CompilationErrorMessages.FixedPoolIndexTooBig);
     }
 
     private void CompileIntegerLiteral(int value)
@@ -1093,7 +1142,7 @@ public class ScriptCompiler
                     else if (idx <= ushort.MaxValue)
                         InsertInstruction(new VmPoolInt_Word((ushort)idx));
                     else
-                        ThrowCompilationError(CompilationErrorMessages.PoolIndexTooBig);
+                        ThrowCompilationError(CompilationErrorMessages.IntPoolIndexTooBig);
                 }
                 break;
         }
@@ -1119,10 +1168,22 @@ public class ScriptCompiler
         return -1;
     }
 
+    private void LeaveSwitch()
+    {
+        _breakControlBlocks.Pop();
+    }
+
     private void LeaveLoop()
     {
         _breakControlBlocks.Pop();
         _continueControlBlocks.Pop();
+    }
+
+    private SwitchBlock EnterSwitch()
+    {
+        var scope = new SwitchBlock();
+        _breakControlBlocks.Push(scope);
+        return scope;
     }
 
     private LoopBlock EnterLoop()
