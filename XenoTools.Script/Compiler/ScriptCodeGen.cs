@@ -11,6 +11,8 @@ namespace XenoTools.Script.Compiler;
 
 public class ScriptCodeGen
 {
+    private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
+
     private CompiledScriptState _compiledState;
 
     static ScriptCodeGen()

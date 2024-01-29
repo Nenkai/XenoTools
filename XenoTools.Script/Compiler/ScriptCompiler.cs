@@ -85,23 +85,13 @@ public class ScriptCompiler
         _fileName = fileName;
     }
 
-    public CompiledScriptState Compile(string code)
+    public CompiledScriptState Compile(Esprima.Ast.Script script)
     {
-        var err = new ScriptErrorHandler();
-        var parse = new AbstractSyntaxTree(code, new ParserOptions() { ErrorHandler = err });
-        var script = parse.ParseScript();
-
-        if (err.HasErrors())
-        {
-            Console.WriteLine("Error while compiling");
-            return null;
-        }
-
         ScanScript(script.Body);
 
         if (_mainFunction is null)
         {
-            Console.WriteLine(CompilationErrorMessages.MissingMainFunction);
+            ThrowCompilationError(CompilationErrorMessages.MissingMainFunction);
             return null;
         }
 
@@ -230,6 +220,9 @@ public class ScriptCompiler
 
     public void CompileStatement(Node node)
     {
+        if (node.Type == Nodes.SourceFileStatement)
+            return; // TODO
+
         if (_currentFunctionFrame is null && (node.Type != Nodes.FunctionDeclaration && node.Type != Nodes.StaticDeclaration))
             ThrowCompilationError(node, CompilationErrorMessages.StatementInTopFrame);
 
@@ -1502,7 +1495,22 @@ public class ScriptCompiler
 
     private void ThrowCompilationError(Node node, string message)
     {
-        throw new Exception(message);
+        throw GetCompilationError(node, message);
+    }
+
+    private void ThrowCompilationError(string message)
+    {
+        throw new ScriptCompilationException(message);
+    }
+
+    private ScriptCompilationException GetCompilationError(Node node, string message)
+    {
+        return new ScriptCompilationException(GetSourceNodeString(node, message));
+    }
+
+    private string GetSourceNodeString(Node node, string message)
+    {
+        return $"{message} at {node.Location.Source}:{node.Location.Start.Line}";
     }
 }
 
