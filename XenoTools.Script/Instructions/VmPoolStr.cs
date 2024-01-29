@@ -39,4 +39,9 @@ public class VmPoolString : VMInstructionBase
     {
         return sizeof(byte);
     }
+
+    public override string ToString()
+    {
+        return $"{Type} - String Index: {StringIndex}";
+    }
 }

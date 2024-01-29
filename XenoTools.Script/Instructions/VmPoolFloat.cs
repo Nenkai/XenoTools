@@ -39,4 +39,9 @@ public class VmPoolFloat : VMInstructionBase
     {
         return sizeof(byte);
     }
+
+    public override string ToString()
+    {
+        return $"{Type} - Float Index: {FloatIndex}";
+    }
 }

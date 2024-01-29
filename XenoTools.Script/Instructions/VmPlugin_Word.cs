@@ -39,4 +39,9 @@ public class VmPlugin_Word : VMInstructionBase
     {
         return sizeof(ushort);
     }
+
+    public override string ToString()
+    {
+        return $"{Type} - Plugin Import Index: {PluginImportIndex}";
+    }
 }

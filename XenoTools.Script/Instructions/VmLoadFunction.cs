@@ -39,4 +39,9 @@ public class VmLoadFunction : VMInstructionBase
     {
         return sizeof(byte);
     }
+
+    public override string ToString()
+    {
+        return $"{Type} - Function Index: {FunctionIndex}";
+    }
 }

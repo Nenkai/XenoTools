@@ -9,39 +9,39 @@ using System.Threading.Tasks;
 
 namespace XenoTools.Script.Instructions;
 
-public class VmGetter : VMInstructionBase
+public class VmLoadFunction_Word : VMInstructionBase
 {
-    public override VmInstType Type => VmInstType.GETTER;
+    public override VmInstType Type => VmInstType.LD_FUNC_W;
 
-    public byte IDIndex { get; set; }
+    public ushort FunctionIndex { get; set; }
 
-    public VmGetter()
+    public VmLoadFunction_Word()
     {
 
     }
 
-    public VmGetter(byte idIndex)
+    public VmLoadFunction_Word(ushort functionIndex)
     {
-        IDIndex = idIndex;
+        FunctionIndex = functionIndex;
     }
 
     public override void Read(ref SpanReader sr)
     {
-        IDIndex = (byte)ReadValue(ref sr);
+        FunctionIndex = (ushort)ReadValue(ref sr);
     }
 
     public override void Write(BinaryStream bs)
     {
-        bs.WriteByte(IDIndex);
+        bs.WriteUInt16(FunctionIndex);
     }
 
     public override int GetSize()
     {
-        return sizeof(byte);
+        return sizeof(ushort);
     }
 
     public override string ToString()
     {
-        return $"{Type} - Getter: {IDIndex}";
+        return $"{Type} - Function Index: {FunctionIndex}";
     }
 }

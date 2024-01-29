@@ -76,28 +76,41 @@ public class ScriptCompiler
     private int _lastStaticID;
     private int _lastLocalID;
     private short _lastIdentifierIndex;
+    private int _lastOCID;
+
+    private string _fileName;
+
+    public ScriptCompiler(string fileName)
+    {
+        _fileName = fileName;
+    }
 
     public CompiledScriptState Compile(string code)
     {
         var err = new ScriptErrorHandler();
-        var parse = new AbstractSyntaxTree(code, new ParserOptions() { ErrorHandler = err }, OnNodeParsed);
+        var parse = new AbstractSyntaxTree(code, new ParserOptions() { ErrorHandler = err });
         var script = parse.ParseScript();
 
         if (err.HasErrors())
         {
-            ThrowCompilationError("Error while compiling");
+            Console.WriteLine("Error while compiling");
             return null;
         }
 
+        ScanScript(script.Body);
+
         if (_mainFunction is null)
-            ThrowCompilationError(CompilationErrorMessages.MissingMainFunction);
+        {
+            Console.WriteLine(CompilationErrorMessages.MissingMainFunction);
+            return null;
+        }
 
         InsertInstruction(new VmExit());
 
         CompileStatements(script.Body);
 
-        short s = AddIdentifier("script.sb");
-        _systemAttributes.Add(new SystemAttribute() { NameID = s });
+        int s = AddIdentifier(_fileName);
+        _systemAttributes.Add(new SystemAttribute() { NameID = (short)s });
         _systemAttributes.Add(new SystemAttribute() { NameID = -1 });
 
         return new CompiledScriptState
@@ -117,38 +130,91 @@ public class ScriptCompiler
         };
     }
 
+    private FunctionInfo currentFrameForParsing;
+    private FunctionDeclaration _mainFunctionNode;
+
     /// <summary>
-    /// Callback for each parsed node.
+    /// Scan the script for all identifiers/functions.
     /// This will work as a "first pass" scan to check for defined symbols.
     /// </summary>
     /// <param name="node"></param>
-    private void OnNodeParsed(Node node)
+    private void ScanScript(NodeList<Statement> body)
     {
+        foreach (var statements in body)
+        {
+            ScanNode(statements);
+        }
+
+        foreach (var subNode in _mainFunctionNode.ChildNodes)
+        {
+            if (subNode is null)
+                continue;
+
+            ScanNode(subNode);
+        }
+
+        foreach (var statements in body)
+        {
+            if (statements.Type == Nodes.StaticDeclaration)
+            {
+                AddIdentifier(statements.As<StaticDeclaration>().Declaration.Declarations[0].Id.As<Identifier>().Name);
+            }
+        }
+    }
+
+    private void ScanNode(Node node, bool allowDeclarator = false)
+    {
+        if (node.Type == Nodes.VariableDeclaration && !allowDeclarator)
+            return;
+
         if (node is FunctionDeclaration function)
         {
-            foreach (Identifier argId in function.Params)
-            {
-                AddIdentifier(argId.Name);
-            }
+            _mainFunctionNode = function;
 
             FunctionInfo frame = new()
             {
                 ID = _lastFunctionID++,
-                NameID = AddIdentifier(function.Id.Name),
+                NameID = (short)AddIdentifier(function.Id.Name),
                 NumArguments = (ushort)function.Params.Count
             };
+            currentFrameForParsing = frame;
 
             if (function.Id.Name == "_main_")
             {
                 if (_mainFunction is not null)
-                    ThrowCompilationError(CompilationErrorMessages.MainFunctionAlreadyDeclared);
+                    ThrowCompilationError(node, CompilationErrorMessages.MainFunctionAlreadyDeclared);
+
+                if (function.Params.Count > 0)
+                    ThrowCompilationError(node, CompilationErrorMessages.CannotDeclareArgumentsInMain);
 
                 _mainFunction = frame;
             }
 
+
             if (!_funcPool.TryAdd(function.Id.Name, frame))
-                ThrowCompilationError(CompilationErrorMessages.FunctionRedeclaration);
+                ThrowCompilationError(node, CompilationErrorMessages.FunctionRedeclaration);
         }
+        else if (node is Identifier ident)
+        {
+            if (currentFrameForParsing == _mainFunction)
+                return;
+
+            AddIdentifier(ident.Name);
+        }
+
+        if (node.ChildNodes.Count > 0)
+        {
+            foreach (var subNode in node.ChildNodes)
+            {
+                if (subNode is null)
+                    continue;
+
+                ScanNode(subNode);
+            }
+        }
+
+        if (node is FunctionDeclaration)
+            currentFrameForParsing = null;
     }
 
     public void CompileStatements(NodeList<Statement> nodes)
@@ -165,7 +231,7 @@ public class ScriptCompiler
     public void CompileStatement(Node node)
     {
         if (_currentFunctionFrame is null && (node.Type != Nodes.FunctionDeclaration && node.Type != Nodes.StaticDeclaration))
-            ThrowCompilationError(CompilationErrorMessages.StatementInTopFrame);
+            ThrowCompilationError(node, CompilationErrorMessages.StatementInTopFrame);
 
         switch (node.Type)
         {
@@ -205,16 +271,29 @@ public class ScriptCompiler
             case Nodes.SwitchStatement:
                 CompileSwitch(node.As<SwitchStatement>()); break;
 
+            case Nodes.ReturnStatement:
+                CompileReturnStatement(node.As<ReturnStatement>()); break;
+
             default:
-                ThrowCompilationError(CompilationErrorMessages.UnsupportedStatementType);
+                ThrowCompilationError(node, CompilationErrorMessages.UnsupportedStatementType);
                 break;
         }
+    }
+
+    private void CompileReturnStatement(ReturnStatement retnStatement)
+    {
+        if (retnStatement.Argument is not null)
+        {
+            CompileExpression(retnStatement.Argument);
+            _currentFunctionFrame.HasReturnValue = true; // TODO
+        }
+        InsertInstruction(new VmRet());
     }
 
     private void CompileVariableDeclaration(VariableDeclaration varDecl)
     {
         if (_currentFunctionFrame == _mainFunction)
-            ThrowCompilationError(CompilationErrorMessages.CannotDeclareLocalsInMain);
+            ThrowCompilationError(varDecl, CompilationErrorMessages.CannotDeclareLocalsInMain);
 
         foreach (VariableDeclarator declarator in varDecl.Declarations)
         {
@@ -230,7 +309,7 @@ public class ScriptCompiler
             StackLocals stackLocals = _localPool[_currentFunctionFrame.LocalPoolIndex];
 
             if (stackLocals.Locals.ContainsKey(id.Name))
-                ThrowCompilationError(CompilationErrorMessages.VariableRedeclaration);
+                ThrowCompilationError(id, CompilationErrorMessages.VariableRedeclaration);
 
             VmVariable local = ProcessDeclarator(declarator, varDecl.Kind);
             local.ID = _lastLocalID++;
@@ -241,10 +320,31 @@ public class ScriptCompiler
     private void CompileFunctionDeclaration(FunctionDeclaration funcDecl)
     {
         if (_currentFunctionFrame is not null)
-            ThrowCompilationError(CompilationErrorMessages.NestedFunctionDeclaration);
+            ThrowCompilationError(funcDecl, CompilationErrorMessages.NestedFunctionDeclaration);
 
         _currentFunctionFrame = _funcPool[funcDecl.Id.Name];
         _currentFunctionFrame.CodeStartOffset = _currentPc;
+
+        foreach (Expression arg in funcDecl.Params)
+        {
+            if (arg.Type != Nodes.Identifier)
+                ThrowCompilationError(arg, "Expected identifier for function argument");
+
+            Identifier argIdentifier = arg.As<Identifier>();
+
+            AddIdentifier(argIdentifier.Name);
+            _currentFunctionFrame.Arguments.Add(argIdentifier.Name);
+        }
+
+        /*
+        var test = new ExpressionStatement(new CallExpression(
+            callee: new StaticMemberExpression(new Identifier("deb"), new Identifier("put"), false),
+            args: NodeList.Create<Expression>(new[] { new Literal(funcDecl.Id.Name, funcDecl.Id.Name) }),
+            optional: false
+        ));
+
+        CompileStatement(test);
+        */
 
         CompileStatement(funcDecl.Body);
 
@@ -265,14 +365,14 @@ public class ScriptCompiler
     private void CompileStaticDeclaration(StaticDeclaration staticDecl)
     {
         if (_currentFunctionFrame is not null)
-            ThrowCompilationError(CompilationErrorMessages.StaticDeclarationInFunction);
+            ThrowCompilationError(staticDecl, CompilationErrorMessages.StaticDeclarationInFunction);
 
         VariableDeclaration decl = staticDecl.Declaration;
         foreach (VariableDeclarator dec in decl.Declarations)
         {
             Identifier id = dec.Id.As<Identifier>();
             if (_definedStatics.ContainsKey(id.Name))
-                ThrowCompilationError(CompilationErrorMessages.StaticAlreadyDeclared);
+                ThrowCompilationError(id, CompilationErrorMessages.StaticAlreadyDeclared);
 
             VmVariable local = ProcessDeclarator(dec, decl.Kind, isStatic: true);
             _definedStatics.Add(id.Name, local.ID);
@@ -316,7 +416,7 @@ public class ScriptCompiler
             ProcessArray(arrayExp, isStatic);
         }
         else
-            ThrowCompilationError(CompilationErrorMessages.UnexpectedVariableDeclaratorType);
+            ThrowCompilationError(decl.Init, CompilationErrorMessages.UnexpectedVariableDeclaratorType);
 
         return scVar;
     }
@@ -357,7 +457,7 @@ public class ScriptCompiler
                 }
             }
             else
-                ThrowCompilationError(CompilationErrorMessages.UnsupportedArrayElement);
+                ThrowCompilationError(elem, CompilationErrorMessages.UnsupportedArrayElement);
 
             _statics.Add(arrElem);
         }
@@ -381,6 +481,8 @@ public class ScriptCompiler
     {
         if (expStatement.Expression.Type == Nodes.UpdateExpression)
             CompileUpdateExpression(expStatement.Expression.As<UpdateExpression>(), keepResult: false);
+        else if (expStatement.Expression.Type == Nodes.CallExpression)
+            CompileCall(expStatement.Expression.As<CallExpression>(), popReturnValue: true);
         else
             CompileExpression(expStatement.Expression);
     }
@@ -420,7 +522,7 @@ public class ScriptCompiler
                 CompileUpdateExpression(exp.As<UpdateExpression>()); break;
 
             default:
-                ThrowCompilationError(CompilationErrorMessages.UnsupportedExpression);
+                ThrowCompilationError(exp, CompilationErrorMessages.UnsupportedExpression);
                 break;
         }
     }
@@ -438,10 +540,13 @@ public class ScriptCompiler
 
         InsertInstruction(inst);
 
-        CompileExpressionAssignment(exp.Argument);
+        if (exp.Argument.Type != Nodes.CallExpression)
+        {
+            CompileExpressionAssignment(exp.Argument);
 
-        if (keepResult)
-            CompileExpression(exp.Argument);
+            if (keepResult)
+                CompileExpression(exp.Argument);
+        }
     }
 
     private void CompileMemberExpression(MemberExpression exp)
@@ -452,12 +557,33 @@ public class ScriptCompiler
             {
                 Literal lit = compMember.Property.As<Literal>();
                 if (lit.NumericTokenType != NumericTokenType.Integer)
-                    ThrowCompilationError(CompilationErrorMessages.ExpectedExpressionOrNumberInArrayAccess);
+                    ThrowCompilationError(lit, CompilationErrorMessages.ExpectedExpressionOrNumberInArrayAccess);
             }
 
             CompileExpression(compMember.Object);
             CompileExpression(compMember.Property);
             InsertInstruction(new VmLoadArray());
+        }
+        else if (exp is AttributeMemberExpression attrMember)
+        {
+            if (attrMember.Property.Type != Nodes.Identifier)
+                ThrowCompilationError(attrMember.Property, CompilationErrorMessages.ExpectedExpressionOrNumberInAttributeAccess);
+
+            CompileExpression(attrMember.Object);
+
+            Identifier propIdentifier = attrMember.Property.As<Identifier>();
+            AddIdentifier(propIdentifier.Name);
+
+            int idIndex = _identifierPool.IndexOf(propIdentifier.Name);
+            if (idIndex == -1)
+                ThrowCompilationError(propIdentifier, "bug? identifier not found?");
+
+            if (idIndex <= byte.MaxValue)
+                InsertInstruction(new VmGetter((byte)idIndex));
+            else if (idIndex <= ushort.MaxValue)
+                InsertInstruction(new VmGetter_Word((ushort)idIndex));
+            else
+                ThrowCompilationError(propIdentifier, CompilationErrorMessages.ExceededMaximumIdentifierCount);
         }
     }
 
@@ -465,8 +591,8 @@ public class ScriptCompiler
     {
         if (binExp.Operator == BinaryOperator.LogicalOr || binExp.Operator == BinaryOperator.LogicalAnd)
         {
-            CompileExpression(binExp.Left);
             CompileExpression(binExp.Right);
+            CompileExpression(binExp.Left);
 
             if (binExp.Operator == BinaryOperator.LogicalOr)
                 InsertInstruction(new VmLogicalOr());
@@ -492,14 +618,19 @@ public class ScriptCompiler
                     break;
 
                 default:
-                    ThrowCompilationError(CompilationErrorMessages.UnaryInvalidLiteralType);
+                    ThrowCompilationError(literal, CompilationErrorMessages.UnaryInvalidLiteralType);
                     break;
             }
 
             return;
         }
+        else if (unaryExpr.Operator == UnaryOperator.LogicalNot)
+        {
+            CompileExpression(unaryExpr.Argument);
+            InsertInstruction(new VmLogicalNot());
+        }
         else
-            ThrowCompilationError(CompilationErrorMessages.UnsupportedUnaryExpression);
+            ThrowCompilationError(unaryExpr, CompilationErrorMessages.UnsupportedUnaryExpression);
     }
 
     private void CompileAssignmentExpression(AssignmentExpression assignmentExpression)
@@ -526,7 +657,7 @@ public class ScriptCompiler
             };
 
             if (inst is null)
-                ThrowCompilationError(CompilationErrorMessages.UnsupportedAssignmentExpression);
+                ThrowCompilationError(assignmentExpression, CompilationErrorMessages.UnsupportedAssignmentExpression);
 
             CompileExpression(assignmentExpression.Left);
             CompileExpression(assignmentExpression.Right);
@@ -548,8 +679,11 @@ public class ScriptCompiler
         {
             if (exp is AttributeMemberExpression attrMemberExpr)
             {
-                if (attrMemberExpr.Object.Type != Nodes.Identifier || attrMemberExpr.Property.Type != Nodes.Identifier)
-                    ThrowCompilationError(CompilationErrorMessages.InvalidAttributeMemberExpressionAssignment);
+                if (attrMemberExpr.Object.Type != Nodes.Identifier)
+                    ThrowCompilationError(attrMemberExpr.Object, CompilationErrorMessages.InvalidAttributeMemberExpressionAssignment);
+
+                if (attrMemberExpr.Property.Type != Nodes.Identifier)
+                    ThrowCompilationError(attrMemberExpr.Property, CompilationErrorMessages.InvalidAttributeMemberExpressionAssignment);
 
                 CompileIdentifier(attrMemberExpr.Object.As<Identifier>());
 
@@ -558,14 +692,14 @@ public class ScriptCompiler
 
                 int idIndex = _identifierPool.IndexOf(propIdentifier.Name);
                 if (idIndex == -1)
-                    ThrowCompilationError("bug? identifier not found?");
+                    ThrowCompilationError(propIdentifier, "bug? identifier not found?");
 
                 if (idIndex <= byte.MaxValue)
                     InsertInstruction(new VmSetter((byte)idIndex));
                 else if (idIndex <= ushort.MaxValue)
                     InsertInstruction(new VmSetter_Word((ushort)idIndex));
                 else
-                    ThrowCompilationError(CompilationErrorMessages.ExceededMaximumIdentifierCount);
+                    ThrowCompilationError(propIdentifier, CompilationErrorMessages.ExceededMaximumIdentifierCount);
             }
             else if (exp is ComputedMemberExpression compMemberExpr)
             {
@@ -575,7 +709,7 @@ public class ScriptCompiler
                 {
                     Literal lit = compMemberExpr.Property.As<Literal>();
                     if (lit.NumericTokenType != NumericTokenType.Integer)
-                        ThrowCompilationError(CompilationErrorMessages.ExpectedExpressionOrNumberInArrayAccess);
+                        ThrowCompilationError(lit, CompilationErrorMessages.ExpectedExpressionOrNumberInArrayAccess);
                 }
 
                 CompileExpression(compMemberExpr.Property);
@@ -583,10 +717,10 @@ public class ScriptCompiler
                 InsertInstruction(new VmStoreArray());
             }
             else
-                ThrowCompilationError(CompilationErrorMessages.UnexpectedMemberAssignmentType);
+                ThrowCompilationError(exp, CompilationErrorMessages.UnexpectedMemberAssignmentType);
         }
         else
-            ThrowCompilationError(CompilationErrorMessages.InvalidAssignmentTarget);
+            ThrowCompilationError(exp, CompilationErrorMessages.InvalidAssignmentTarget);
     }
 
     private void CompileIdentifierAssignment(Identifier id)
@@ -615,11 +749,41 @@ public class ScriptCompiler
 
             case DeclType.Static:
                 int staticIndex = _definedStatics[id.Name];
-                InsertInstruction(new VmStoreStatic((byte)staticIndex));
+                if (staticIndex <= byte.MaxValue)
+                    InsertInstruction(new VmStoreStatic((byte)staticIndex));
+                else if (staticIndex <= ushort.MaxValue)
+                    InsertInstruction(new VmStoreStatic_Word((ushort)staticIndex));
+                else
+                    ThrowCompilationError(id, CompilationErrorMessages.ExceededMaximumStaticCount);
                 break;
 
             case DeclType.Function:
-                ThrowCompilationError(CompilationErrorMessages.AssignToFunction);
+                ThrowCompilationError(id, CompilationErrorMessages.AssignToFunction);
+                break;
+
+            case DeclType.FunctionArgument:
+                int argIndex = _currentFunctionFrame.Arguments.IndexOf(id.Name);
+                if (argIndex == -1)
+                    ThrowCompilationError(id, "bug? Undeclared argument?");
+
+                switch (argIndex)
+                {
+                    case 0:
+                        InsertInstruction(new VmStoreArgument0()); break;
+                    case 1:
+                        InsertInstruction(new VmStoreArgument1()); break;
+                    case 2:
+                        InsertInstruction(new VmStoreArgument2()); break;
+                    case 3:
+                        InsertInstruction(new VmStoreArgument3()); break;
+
+                    default:
+                        if (argIndex <= byte.MaxValue)
+                            InsertInstruction(new VmStoreArgument((byte)argIndex));
+                        else
+                            ThrowCompilationError(id, CompilationErrorMessages.ExceededMaximumArgumentCount);
+                        break;
+                }
                 break;
 
             default:
@@ -631,33 +795,64 @@ public class ScriptCompiler
     {
         SwitchBlock switchCtx = EnterSwitch();
 
+        CompileExpression(switchStatement.Discriminant);
+
         int startOffset = (int)_currentPc;
 
-        var swInstruction = new VmSwitch();
-        InsertInstruction(swInstruction);
-
-        Dictionary<SwitchCase, VmJump> caseBodyJumps = new();
+        // switch cases have to be sorted (game uses bsearch)
+        SortedList<long, SwitchCase> orderedSwitchCases = new();
 
         int numBranches = 0;
+        bool hasDefault = false;
         for (int i = 0; i < switchStatement.Cases.Count; i++)
         {
             SwitchCase swCase = switchStatement.Cases[i];
-            if (swCase.Test is not null) // Actual case
+            if (swCase.Test is not null)
             {
                 if (swCase.Test.Type != Nodes.Literal)
-                    ThrowCompilationError("Expected integer for switch case test");
+                    ThrowCompilationError(swCase.Test, CompilationErrorMessages.ExpectedIntegerLiteralForSwitchTest);
 
+                Literal lit = swCase.Test.As<Literal>();
+                if (lit.NumericTokenType != NumericTokenType.Integer)
+                    ThrowCompilationError(lit, CompilationErrorMessages.ExpectedIntegerLiteralForSwitchTest);
+
+                if (orderedSwitchCases.ContainsKey((int)lit.Value))
+                    ThrowCompilationError(lit, CompilationErrorMessages.DuplicateSwitchCaseTest);
+
+                orderedSwitchCases.Add((int)lit.Value, swCase);
+
+                numBranches++;
+                if (numBranches > byte.MaxValue)
+                    ThrowCompilationError(switchStatement, CompilationErrorMessages.TooManySwitchCases);
+            }
+            else
+            {
+                hasDefault = true;
+                orderedSwitchCases.Add(long.MaxValue, swCase); // long hack for sorting
+            }
+        }
+
+        var swInstruction = new VmSwitch() { NumBranches = (byte)numBranches };
+        InsertInstruction(swInstruction);
+
+        foreach (SwitchCase swCase in orderedSwitchCases.Values)
+        {
+            if (swCase.Test is not null) // Actual case
+            {
                 Literal lit = swCase.Test.As<Literal>();
                 swInstruction.Branches.Add(new VmSwitch.VmSwitchBranch(
                     (int)lit.Value,
-                    (uint)(_currentPc - startOffset)
+                    (int)(_currentPc - startOffset)
                 ));
 
                 CompileStatements(swCase.Consequent);
-                numBranches++;
+            }
+            else // Default case
+            {
+                swInstruction.DefaultCaseRelativeJumpOffset = (int)(_currentPc - startOffset);
 
-                if (numBranches > byte.MaxValue)
-                    ThrowCompilationError(CompilationErrorMessages.TooManySwitchCases);
+                if (swCase.Consequent.Count != 1 && swCase.Consequent[0].Type != Nodes.BreakStatement)
+                    CompileStatements(swCase.Consequent);
             }
         }
 
@@ -668,15 +863,18 @@ public class ScriptCompiler
             swCase.Instruction.JumpRelativeOffset = (short)(_currentPc - swCase.PC);
         }
 
+        if (!hasDefault)
+            swInstruction.DefaultCaseRelativeJumpOffset = (int)(_currentPc - startOffset);
+
         swInstruction.NumBranches = (byte)numBranches;
 
         LeaveSwitch();
     }
 
 
-    private DeclType GetVarType(string identifier)
+    private DeclType GetVarType(string identifier, bool allowOC = false)
     {
-        if (OCs.Contains(identifier))
+        if (allowOC && OCs.Contains(identifier))
             return DeclType.OC;
         if (_definedStatics.ContainsKey(identifier))
             return DeclType.Static;
@@ -684,6 +882,10 @@ public class ScriptCompiler
             return DeclType.Function;
         else if (_currentFunctionFrame is not null)
         {
+            if (_currentFunctionFrame.Arguments.Contains(identifier))
+            {
+                return DeclType.FunctionArgument;
+            }
             if (_currentFunctionFrame.LocalPoolIndex != -1 && _localPool[_currentFunctionFrame.LocalPoolIndex].Locals.ContainsKey(identifier))
                 return DeclType.Local;
         }
@@ -700,16 +902,21 @@ public class ScriptCompiler
         InsertInstruction(jumpIfFalse);
 
         CompileStatement(ifStatement.Consequent);
-        jumpIfFalse.JumpRelativeOffset = (short)((_currentPc - previousPc));
 
         if (ifStatement.Alternate is not null)
         {
             var alternateSkip = new VmJump();
+            int previousPc2 = (ushort)_currentPc;
             InsertInstruction(alternateSkip);
-            previousPc = (ushort)_currentPc;
+
+            jumpIfFalse.JumpRelativeOffset = (short)((_currentPc - previousPc));
 
             CompileStatement(ifStatement.Alternate);
-            alternateSkip.JumpRelativeOffset = (short)((_currentPc - previousPc));
+            alternateSkip.JumpRelativeOffset = (short)((_currentPc - previousPc2));
+        }
+        else
+        {
+            jumpIfFalse.JumpRelativeOffset = (short)((_currentPc - previousPc));
         }
     }
 
@@ -718,7 +925,23 @@ public class ScriptCompiler
         LoopBlock loopBlock = EnterLoop();
 
         if (forStatement.Init is not null)
-            CompileStatement(forStatement.Init);
+        {
+            switch (forStatement.Init.Type)
+            {
+                case Nodes.VariableDeclaration:
+                    CompileVariableDeclaration(forStatement.Init as VariableDeclaration); break;
+                case Nodes.AssignmentExpression:
+                    CompileAssignmentExpression(forStatement.Init as AssignmentExpression); break;
+                case Nodes.Identifier:
+                    CompileIdentifier(forStatement.Init as Identifier); break;
+                case Nodes.CallExpression:
+                    CompileCall(forStatement.Init as CallExpression, popReturnValue: true);
+                    break;
+                default:
+                    ThrowCompilationError(forStatement.Init, "Unsupported for init type");
+                    break;
+            }
+        }
 
         int testOffset = (int)_currentPc;
         if (forStatement.Test is not null)
@@ -829,7 +1052,7 @@ public class ScriptCompiler
     public void CompileContinue(ContinueStatement continueStatement)
     {
         if (_continueControlBlocks.Count == 0)
-            ThrowCompilationError(CompilationErrorMessages.ContinueWithoutContextualScope);
+            ThrowCompilationError(continueStatement, CompilationErrorMessages.ContinueWithoutContextualScope);
 
         LoopBlock loop = (LoopBlock)GetLastContinueControlledScope();
 
@@ -855,56 +1078,107 @@ public class ScriptCompiler
         }
         else
         {
-            ThrowCompilationError(CompilationErrorMessages.BreakWithoutContextualScope);
+            ThrowCompilationError(breakStatement, CompilationErrorMessages.BreakWithoutContextualScope);
         }
     }
 
-    private void CompileCall(CallExpression call)
+    private void CompileCall(CallExpression call, bool popReturnValue = false)
     {
+        if (call.Callee.Type == Nodes.Identifier)
+        {
+            Identifier identifier = call.Callee.As<Identifier>();
+            if (identifier.Name == "next")
+            {
+                if (call.Arguments.Count > 0)
+                    ThrowCompilationError(call, CompilationErrorMessages.InvalidNextWithArguments);
+
+                InsertInstruction(new VmNext());
+                return;
+            }
+            else if (identifier.Name == "typeof")
+            {
+                if (call.Arguments.Count != 1)
+                    ThrowCompilationError(call, CompilationErrorMessages.MissingTypeOfArgument);
+
+                InsertInstruction(new VmTypeOf());
+                return;
+            }
+            else if (identifier.Name == "sizeof")
+            {
+                if (call.Arguments.Count != 1)
+                    ThrowCompilationError(call, CompilationErrorMessages.MissingTypeOfArgument);
+
+                InsertInstruction(new VmSizeOf());
+                return;
+            }
+        }
+
         for (int i = call.Arguments.Count - 1; i >= 0; i--)
         {
             Expression arg = call.Arguments[i];
             CompileExpression(arg);
         }
 
-        CompileIntegerLiteral(call.Arguments.Count);
+        if (!popReturnValue)
+        {
+            CompileIntegerLiteral(call.Arguments.Count | 0x100, allowSpecifiedIntegerInstruction: true);
+        }
+        else
+            CompileIntegerLiteral(call.Arguments.Count, allowSpecifiedIntegerInstruction: true);
 
         if (call.Callee is Identifier funcIdentifier)
         {
-            DeclType type = GetVarType(funcIdentifier.Name);
+            DeclType type = GetVarType(funcIdentifier.Name, allowOC: true);
             if (type == DeclType.OC)
             {
                 AddOC(funcIdentifier.Name);
 
-                byte idx = (byte)_ocPool[funcIdentifier.Name].NameID;
-                InsertInstruction(new VmGetOC(idx));
+                int idx = _ocPool[funcIdentifier.Name].ID;
+                if (idx < byte.MaxValue)
+                    InsertInstruction(new VmGetOC((byte)idx));
+                else if (idx < ushort.MaxValue)
+                    InsertInstruction(new VmGetOC_Word((ushort)idx));
+                else
+                    ThrowCompilationError(funcIdentifier, CompilationErrorMessages.ExceededMaximumOCCount);
             }
             else if (type == DeclType.Function)
             {
-                FunctionInfo functionFrame = _funcPool[call.Callee.As<Identifier>().Name];
-                InsertInstruction(new VmCall((byte)functionFrame.ID));
+                Identifier id = call.Callee.As<Identifier>();
+                FunctionInfo functionFrame = _funcPool[id.Name];
+                if (functionFrame.ID <= byte.MaxValue)
+                    InsertInstruction(new VmCall((byte)functionFrame.ID));
+                else if (functionFrame.ID <= ushort.MaxValue)
+                    InsertInstruction(new VmCall_Word((ushort)functionFrame.ID));
+                else
+                    ThrowCompilationError(id, CompilationErrorMessages.ExceededMaximumFunctionCount);
             }
             else
-                ThrowCompilationError(CompilationErrorMessages.CallToUndeclaredFunction);
+                ThrowCompilationError(call.Callee, CompilationErrorMessages.CallToUndeclaredFunction);
         }
         else if (call.Callee.Type == Nodes.MemberExpression)
         {
             MemberExpression memberExpression = (MemberExpression)call.Callee;
-            if (memberExpression.Object.Type != Nodes.Identifier || memberExpression.Property.Type != Nodes.Identifier)
-                ThrowCompilationError("Unexpected syntax");
+            if (memberExpression.Object.Type != Nodes.Identifier)
+                ThrowCompilationError(memberExpression.Object, "Unexpected syntax");
 
-            if (call.Callee is AttributeMemberExpression)
+            if (memberExpression.Property.Type != Nodes.Identifier)
+                ThrowCompilationError(memberExpression.Property, "Unexpected syntax");
+
+            if (call.Callee is OCMemberExpression)
             {
                 CompileIdentifier(memberExpression.Object.As<Identifier>());
 
-                int idx = _identifierPool.IndexOf(memberExpression.Property.As<Identifier>().Name);
+                Identifier propId = memberExpression.Property.As<Identifier>();
+                AddIdentifier(propId.Name);
+
+                int idx = _identifierPool.IndexOf(propId.Name);
 
                 if (idx <= byte.MaxValue)
                     InsertInstruction(new VmSend((byte)idx));
                 else if (idx <= ushort.MaxValue)
                     InsertInstruction(new VmSend_Word((ushort)idx));
                 else
-                    ThrowCompilationError(CompilationErrorMessages.ExceededMaximumIdentifierCount);
+                    ThrowCompilationError(propId, CompilationErrorMessages.ExceededMaximumIdentifierCount);
             }
             else if (call.Callee is StaticMemberExpression)
             {
@@ -931,13 +1205,13 @@ public class ScriptCompiler
                 if (pluginImport.ID >= 0 && pluginImport.ID <= byte.MaxValue)
                     InsertInstruction(new VmPlugin((byte)pluginImport.ID));
                 else if (pluginImport.ID >= 0 && pluginImport.ID <= ushort.MaxValue)
-                    InsertInstruction(new VmSend_Word((ushort)pluginImport.ID));
+                    InsertInstruction(new VmPlugin_Word((ushort)pluginImport.ID));
                 else
-                    ThrowCompilationError(CompilationErrorMessages.ExceededMaximumPluginImports);
+                    ThrowCompilationError(call.Callee, CompilationErrorMessages.ExceededMaximumPluginImports);
             }
         }
         else
-            ThrowCompilationError(CompilationErrorMessages.UnsupportedCallType);
+            ThrowCompilationError(call.Callee, CompilationErrorMessages.UnsupportedCallType);
     }
 
     private void CompileBinaryExpression(BinaryExpression binExpression)
@@ -947,16 +1221,6 @@ public class ScriptCompiler
 
         switch (binExpression.Operator)
         {
-            case BinaryOperator.Plus:
-                break;
-            case BinaryOperator.Minus:
-                break;
-            case BinaryOperator.Times:
-                break;
-            case BinaryOperator.Divide:
-                break;
-            case BinaryOperator.Modulo:
-                break;
             case BinaryOperator.Equal:
                 InsertInstruction(new VmEquals());
                 break;
@@ -975,32 +1239,6 @@ public class ScriptCompiler
             case BinaryOperator.LessOrEqual:
                 InsertInstruction(new VmLesserOrEquals());
                 break;
-            case BinaryOperator.BitwiseAnd:
-                break;
-            case BinaryOperator.BitwiseOr:
-                break;
-            case BinaryOperator.BitwiseXOr:
-                break;
-            case BinaryOperator.LeftShift:
-                break;
-            case BinaryOperator.RightShift:
-                break;
-            case BinaryOperator.UnsignedRightShift:
-                break;
-            case BinaryOperator.InstanceOf:
-                break;
-            case BinaryOperator.In:
-                break;
-            case BinaryOperator.LogicalAnd:
-                break;
-            case BinaryOperator.LogicalOr:
-                break;
-            case BinaryOperator.Exponentiation:
-                break;
-            case BinaryOperator.NullishCoalescing:
-                break;
-            default:
-                break;
         }
     }
 
@@ -1012,20 +1250,35 @@ public class ScriptCompiler
         {
             case DeclType.Static:
                 if (!_definedStatics.TryGetValue(identifier.Name, out int staticIdx))
-                    ThrowCompilationError("bug? Undeclared static?");
+                    ThrowCompilationError(identifier, "bug? Undeclared static?");
 
-                InsertInstruction(new VmLoadStatic((byte)staticIdx));
+                if (staticIdx <= byte.MaxValue)
+                    InsertInstruction(new VmLoadStatic((byte)staticIdx));
+                else if (staticIdx <= ushort.MaxValue)
+                    InsertInstruction(new VmLoadStatic_Word((ushort)staticIdx));
+                else
+                    ThrowCompilationError(identifier, CompilationErrorMessages.ExceededMaximumStaticCount);
+
                 break;
 
             case DeclType.Function:
                 FunctionInfo functionFrame = _funcPool[identifier.Name];
-                InsertInstruction(new VmLoadFunction((byte)functionFrame.ID));
+                if (functionFrame.ID <= byte.MaxValue)
+                    InsertInstruction(new VmLoadFunction((byte)functionFrame.ID));
+                else if (functionFrame.ID <= ushort.MaxValue)
+                    InsertInstruction(new VmLoadFunction_Word((ushort)functionFrame.ID));
+                else
+                    ThrowCompilationError(identifier, CompilationErrorMessages.ExceededMaximumFunctionCount);
+
                 break;
 
             case DeclType.Local:
                 int idIndex = _localPool[_currentFunctionFrame.LocalPoolIndex].Locals[identifier.Name].ID;
                 if (idIndex == -1)
-                    ThrowCompilationError("bug? Undeclared local?");
+                    ThrowCompilationError(identifier, "bug? Undeclared local?");
+
+                if (idIndex > byte.MaxValue)
+                    ThrowCompilationError(identifier, CompilationErrorMessages.ExceededMaximumLocalsCount);
 
                 switch (idIndex)
                 {
@@ -1039,12 +1292,41 @@ public class ScriptCompiler
                         InsertInstruction(new VmLoad3()); break;
 
                     default:
-                        InsertInstruction(new VmLoad((byte)idIndex)); break;
+                        if (idIndex <= byte.MaxValue)
+                            InsertInstruction(new VmLoad((byte)idIndex));
+                        else
+                            ThrowCompilationError(identifier, CompilationErrorMessages.ExceededMaximumLocalsCount);
+                        break;
+                }
+                break;
+
+            case DeclType.FunctionArgument:
+                int argIndex = _currentFunctionFrame.Arguments.IndexOf(identifier.Name);
+                if (argIndex == -1)
+                    ThrowCompilationError(identifier, "bug? Undeclared argument?");
+
+                switch (argIndex)
+                {
+                    case 0:
+                        InsertInstruction(new VmLoadArgument0()); break;
+                    case 1:
+                        InsertInstruction(new VmLoadArgument1()); break;
+                    case 2:
+                        InsertInstruction(new VmLoadArgument2()); break;
+                    case 3:
+                        InsertInstruction(new VmLoadArgument3()); break;
+
+                    default:
+                        if (argIndex <= byte.MaxValue)
+                            InsertInstruction(new VmLoadArgument((byte)argIndex));
+                        else
+                            ThrowCompilationError(identifier, CompilationErrorMessages.ExceededMaximumArgumentCount);
+                        break;
                 }
                 break;
 
             case DeclType.Undefined:
-                ThrowCompilationError(CompilationErrorMessages.UndefinedIdentifier);
+                ThrowCompilationError(identifier, CompilationErrorMessages.UndefinedIdentifier);
                 break;
 
             default:
@@ -1056,11 +1338,11 @@ public class ScriptCompiler
     {
         if (literal.NumericTokenType == NumericTokenType.Integer)
         {
-            CompileIntegerLiteral((int)literal.Value);
+            CompileIntegerLiteral((int)literal.Value, sourceNode: literal);
         }
         else if (literal.NumericTokenType == NumericTokenType.Float)
         {
-            CompileFloatLiteral((float)literal.Value);
+            CompileFloatLiteral((float)literal.Value, sourceNode: literal);
         }
         else if (literal.TokenType == TokenType.BooleanLiteral)
         {
@@ -1072,7 +1354,7 @@ public class ScriptCompiler
         else if (literal.TokenType == TokenType.StringLiteral)
         {
             string str = literal.StringValue;
-            CompileStringLiteral(str);
+            CompileStringLiteral(str, sourceNode: literal);
         }
         else if (literal.TokenType == TokenType.NilLiteral)
         {
@@ -1080,11 +1362,11 @@ public class ScriptCompiler
         }
         else
         {
-            ThrowCompilationError(CompilationErrorMessages.UnaryInvalidLiteral);
+            ThrowCompilationError(literal, CompilationErrorMessages.UnaryInvalidLiteral);
         }
     }
 
-    private void CompileStringLiteral(string str)
+    private void CompileStringLiteral(string str, Node sourceNode = null)
     {
         if (!_stringPool.Contains(str))
             _stringPool.Add(str);
@@ -1095,10 +1377,10 @@ public class ScriptCompiler
         else if (idx < ushort.MaxValue)
             InsertInstruction(new VmPoolString_Word((ushort)idx));
         else
-            ThrowCompilationError(CompilationErrorMessages.StringPoolIndexTooBig);
+            ThrowCompilationError(sourceNode, CompilationErrorMessages.StringPoolIndexTooBig);
     }
 
-    private void CompileFloatLiteral(float value)
+    private void CompileFloatLiteral(float value, Node sourceNode = null)
     {
         if (!_fixedPool.Contains(value))
             _fixedPool.Add(value);
@@ -1109,10 +1391,10 @@ public class ScriptCompiler
         else if (idx <= ushort.MaxValue)
             InsertInstruction(new VmPoolFloat_Word((ushort)idx));
         else
-            ThrowCompilationError(CompilationErrorMessages.FixedPoolIndexTooBig);
+            ThrowCompilationError(sourceNode, CompilationErrorMessages.FixedPoolIndexTooBig);
     }
 
-    private void CompileIntegerLiteral(int value)
+    private void CompileIntegerLiteral(int value, Node sourceNode = null, bool allowSpecifiedIntegerInstruction = false)
     {
         switch (value)
         {
@@ -1127,9 +1409,11 @@ public class ScriptCompiler
             case 4:
                 InsertInstruction(new VmConst4()); break;
             default:
-                if (value >= 0 && value <= byte.MaxValue)
+
+                // For some reason CONST_I and CONST_I_W are only allowed for call argument numbers
+                if (allowSpecifiedIntegerInstruction && value >= 0 && value <= byte.MaxValue)
                     InsertInstruction(new VmConstInteger((byte)value));
-                else if (value >= 0 && value <= ushort.MaxValue)
+                else if (allowSpecifiedIntegerInstruction && value >= 0 && value <= ushort.MaxValue)
                     InsertInstruction(new VmConstInteger_Word((ushort)value));
                 else
                 {
@@ -1142,13 +1426,13 @@ public class ScriptCompiler
                     else if (idx <= ushort.MaxValue)
                         InsertInstruction(new VmPoolInt_Word((ushort)idx));
                     else
-                        ThrowCompilationError(CompilationErrorMessages.IntPoolIndexTooBig);
+                        ThrowCompilationError(sourceNode, CompilationErrorMessages.IntPoolIndexTooBig);
                 }
                 break;
         }
     }
 
-    private short AddIdentifier(string id)
+    private int AddIdentifier(string id)
     {
         if (!_identifierPool.Contains(id))
         {
@@ -1161,9 +1445,9 @@ public class ScriptCompiler
 
     private short AddOC(string id)
     {
-        short identifier = AddIdentifier(id);
-        if (identifier != -1 && !_ocPool.ContainsKey(id))
-            _ocPool.Add(id, new ObjectConstructor() { NameID = identifier });
+        AddIdentifier(id);
+        if (!_ocPool.ContainsKey(id))
+            _ocPool.Add(id, new ObjectConstructor() { ID = _lastOCID++, NameID = _identifierPool.IndexOf(id) });
 
         return -1;
     }
@@ -1216,7 +1500,7 @@ public class ScriptCompiler
         _currentPc += (1 + (uint)inst.GetSize());
     }
 
-    private void ThrowCompilationError(string message)
+    private void ThrowCompilationError(Node node, string message)
     {
         throw new Exception(message);
     }
@@ -1229,5 +1513,6 @@ public enum DeclType
     Static,
     Local,
     Function,
+    FunctionArgument,
     OC,
 }

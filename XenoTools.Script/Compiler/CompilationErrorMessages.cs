@@ -19,6 +19,7 @@ public class CompilationErrorMessages
     public const string MissingMainFunction = "_main_ function missing";
     public const string MainFunctionAlreadyDeclared = "_main_ was already declared";
     public const string CannotDeclareLocalsInMain = "Locals cannot be declared in _main_";
+    public const string CannotDeclareArgumentsInMain = "Arguments cannot be declared in _main_";
 
     // Weird syntax
     public const string StatementInTopFrame = "Non static or function declarations are not allowed in the top frame";
@@ -27,22 +28,31 @@ public class CompilationErrorMessages
     public const string StaticDeclarationInFunction = "Invalid static declaration inside function";
 
     // Limit checks
-    public const string ExceededMaximumPluginImports = "Maximum amount of plugin imports reached? (> 65535)";
-    public const string IntPoolIndexTooBig = "Maximum amount of ints in pool reached? (> 65535)";
-    public const string FixedPoolIndexTooBig = "Maximum amount of fixed/floats in pool reached? (> 65535)";
-    public const string StringPoolIndexTooBig = "Maximum amount of strings in pool reached? (> 65535)";
-    public const string ExceededMaximumIdentifierCount = "Maximum amount of identifiers reached? (> 65535)";
+    public const string ExceededMaximumPluginImports = "Too many plugin imports in pool (> 65535)";
+    public const string IntPoolIndexTooBig = "Too many integers in pool (> 65535)";
+    public const string FixedPoolIndexTooBig = "Too many fixed/floats in pool (> 65535)";
+    public const string StringPoolIndexTooBig = "Too many strings in pool (> 65535)";
+    public const string ExceededMaximumIdentifierCount = "Too many identifiers in pool (> 65535)";
+    public const string ExceededMaximumStaticCount = "Too many statics in pool (> 65535)";
+    public const string ExceededMaximumFunctionCount = "Too many functions in pool (> 65535)";
+    public const string ExceededMaximumOCCount = "Too many OCs in pool (> 65535)";
+    public const string ExceededMaximumLocalsCount = "Too many locals (> 255)";
+    public const string ExceededMaximumArgumentCount = "Too many function arguments (> 255)";
 
     // Switch
     public const string TooManySwitchCases = "Too many switch cases (> 255)";
     public const string BreakWithoutContextualScope = "Invalid break statement without loop or switch block";
     public const string ContinueWithoutContextualScope = "Invalid continue statement without loop block";
+    public const string ExpectedIntegerLiteralForSwitchTest = "Expected integer literal for switch case";
+    public const string DuplicateSwitchCaseTest = "Duplicate switch case";
 
     // Unsupported
     public const string UnsupportedExpression = "Unsupported expression";
     public const string UnsupportedUnaryExpression = "Unsupported unary expression type";
     public const string UnsupportedAssignmentExpression = "Unsupported assignment expression type";
     public const string ExpectedExpressionOrNumberInArrayAccess = "Expected an expression or integer in array access";
+    public const string ExpectedExpressionOrNumberInAttributeAccess = "Expected an identifier for attribute access";
+
     public const string UnexpectedMemberAssignmentType = "Unexpected member assignment type";
     public const string InvalidAssignmentTarget = "Invalid assignment target type";
     public const string UnaryInvalidLiteralType = "Invalid literal type for unary operation";
@@ -53,6 +63,8 @@ public class CompilationErrorMessages
     public const string UnsupportedStatementType = "Unsupported or invalid statement";
     public const string UnsupportedCallType = "Unsupported call type";
 
-
+    public const string InvalidNextWithArguments = "next() cannot be called with arguments";
+    public const string MissingTypeOfArgument = "typeof() requires 1 argument";
+    public const string MissingSizeOfArgument = "sizeof() requires 1 argument";
 
 }

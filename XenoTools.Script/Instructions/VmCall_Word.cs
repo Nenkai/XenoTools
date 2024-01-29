@@ -9,35 +9,35 @@ using System.Threading.Tasks;
 
 namespace XenoTools.Script.Instructions;
 
-public class VmCall : VMInstructionBase
+public class VmCall_Word : VMInstructionBase
 {
-    public override VmInstType Type => VmInstType.CALL;
+    public override VmInstType Type => VmInstType.CALL_W;
 
-    public byte FunctionIndex { get; set; }
+    public ushort FunctionIndex { get; set; }
 
-    public VmCall()
+    public VmCall_Word()
     {
 
     }
 
-    public VmCall(byte functionIndex)
+    public VmCall_Word(ushort functionIndex)
     {
         FunctionIndex = functionIndex;
     }
 
     public override void Read(ref SpanReader sr)
     {
-        FunctionIndex = sr.ReadByte();
+        FunctionIndex = sr.ReadUInt16();
     }
 
     public override void Write(BinaryStream bs)
     {
-        bs.WriteByte(FunctionIndex);
+        bs.WriteUInt16(FunctionIndex);
     }
 
     public override int GetSize()
     {
-        return sizeof(byte);
+        return sizeof(ushort);
     }
 
     public override string ToString()

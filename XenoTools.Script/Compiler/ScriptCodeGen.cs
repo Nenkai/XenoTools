@@ -13,6 +13,11 @@ public class ScriptCodeGen
 {
     private CompiledScriptState _compiledState;
 
+    static ScriptCodeGen()
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+    }
+
     public ScriptCodeGen(CompiledScriptState state)
     {
         _compiledState = state;
@@ -201,7 +206,7 @@ public class ScriptCodeGen
         for (int i = 0; i < _compiledState.StringPool.Count; i++)
         {
             stringOffsets.Add((int)stringMemStream.Position);
-            stringBinStream.WriteString(_compiledState.StringPool[i], StringCoding.ZeroTerminated);
+            stringBinStream.WriteString(_compiledState.StringPool[i], StringCoding.ZeroTerminated, Encoding.GetEncoding("Shift-JIS"));
         }
 
         // calculate whether the offsets should be shorts or ints.
@@ -263,7 +268,7 @@ public class ScriptCodeGen
         {
             bs.WriteInt16(func.NameID);
             bs.WriteUInt16(func.NumArguments);
-            bs.WriteUInt16(0);
+            bs.WriteBoolean(func.HasReturnValue, BooleanCoding.Word);
             bs.WriteUInt16(func.NumLocals);
             bs.WriteInt16(func.LocalPoolIndex);
             bs.WriteInt16(0);
@@ -324,7 +329,7 @@ public class ScriptCodeGen
         {
             foreach (var import in _compiledState.OCPool.Values)
             {
-                bs.WriteInt16(import.NameID);
+                bs.WriteUInt16((ushort)import.NameID);
                 i++;
             }
         }

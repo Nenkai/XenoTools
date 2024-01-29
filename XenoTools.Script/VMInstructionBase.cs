@@ -27,7 +27,7 @@ public abstract class VMInstructionBase
 
     public int ReadValue(ref SpanReader sr)
     {
-        return VMInstructionBase.InstToLayout[(int)Type].ValueTypeSize switch
+        return InstToLayout[(int)Type].ValueTypeSize switch
         {
             4 => sr.ReadInt32(),
             2 => sr.ReadInt16(),
@@ -37,6 +37,10 @@ public abstract class VMInstructionBase
         };
     }
 
+    public override string ToString()
+    {
+        return $"{Type}";
+    }
 
     public static VMInstructionBase NewByType(VmInstType type)
     {
@@ -58,7 +62,7 @@ public abstract class VMInstructionBase
             VmInstType.POOL_STR_W => new VmPoolString_Word(),
             VmInstType.LD => new VmLoad(),
             VmInstType.ST => new VmStore(),
-            VmInstType.LD_ARG => new VmLoadArg(),
+            VmInstType.LD_ARG => new VmLoadArgument(),
             VmInstType.ST_ARG => throw new NotImplementedException(),
             VmInstType.ST_ARG_OMIT => throw new NotImplementedException(),
             VmInstType.LD_0 => new VmLoad0(),
@@ -78,16 +82,16 @@ public abstract class VMInstructionBase
             VmInstType.ST_ARG_2 => throw new NotImplementedException(),
             VmInstType.ST_ARG_3 => throw new NotImplementedException(),
             VmInstType.LD_STATIC => new VmLoadStatic(),
-            VmInstType.LD_STATIC_W => throw new NotImplementedException(),
+            VmInstType.LD_STATIC_W => new VmLoadStatic_Word(),
             VmInstType.ST_STATIC => new VmStoreStatic(),
-            VmInstType.ST_STATIC_W => throw new NotImplementedException(),
+            VmInstType.ST_STATIC_W => new VmStoreStatic_Word(),
             VmInstType.LD_AR => new VmLoadArray(),
             VmInstType.ST_AR => new VmStoreArray(),
             VmInstType.LD_NIL => new VmLoadNil(),
             VmInstType.LD_TRUE => new VmLoadTrue(),
             VmInstType.LD_FALSE => new VmLoadFalse(),
             VmInstType.LD_FUNC => new VmLoadFunction(),
-            VmInstType.LD_FUNC_W => throw new NotImplementedException(),
+            VmInstType.LD_FUNC_W => new VmLoadFunction_Word(),
             VmInstType.LD_PLUGIN => throw new NotImplementedException(),
             VmInstType.LD_PLUGIN_W => throw new NotImplementedException(),
             VmInstType.LD_FUNC_FAR => throw new NotImplementedException(),
@@ -102,8 +106,8 @@ public abstract class VMInstructionBase
             VmInstType.MOD => new VmModulo(),
             VmInstType.OR => new VmBitwiseOr(),
             VmInstType.AND => new VmBitwiseAnd(),
-            VmInstType.R_SHIFT => throw new NotImplementedException(),
-            VmInstType.L_SHIFT => throw new NotImplementedException(),
+            VmInstType.R_SHIFT => new VmBitwiseRightShift(),
+            VmInstType.L_SHIFT => new VmBitwiseLeftShift(),
             VmInstType.EQ => new VmEquals(),
             VmInstType.NE => new VmNotEquals(),
             VmInstType.GT => new VmGreaterThan(),
@@ -124,15 +128,15 @@ public abstract class VMInstructionBase
             VmInstType.CALL_FAR => throw new NotImplementedException(),
             VmInstType.CALL_FAR_W => throw new NotImplementedException(),
             VmInstType.GET_OC => new VmGetOC(),
-            VmInstType.GET_OC_W => throw new NotImplementedException(),
+            VmInstType.GET_OC_W => new VmGetOC_Word(),
             VmInstType.GETTER => new VmGetter(),
-            VmInstType.GETTER_W => throw new NotImplementedException(),
+            VmInstType.GETTER_W => new VmGetter_Word(),
             VmInstType.SETTER => new VmSetter(),
-            VmInstType.SETTER_W => throw new NotImplementedException(),
+            VmInstType.SETTER_W => new VmSetter_Word(),
             VmInstType.SEND => new VmSend(),
             VmInstType.SEND_W =>new VmSend_Word(),
-            VmInstType.TYPEOF => throw new NotImplementedException(),
-            VmInstType.SIZEOF => throw new NotImplementedException(),
+            VmInstType.TYPEOF => new VmTypeOf(),
+            VmInstType.SIZEOF => new VmSizeOf(),
             VmInstType.SWITCH => new VmSwitch(),
             VmInstType.INC => new VmIncrement(),
             VmInstType.DEC => new VmDecrement(),

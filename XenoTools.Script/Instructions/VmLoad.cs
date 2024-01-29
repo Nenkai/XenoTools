@@ -13,7 +13,7 @@ public class VmLoad : VMInstructionBase
 {
     public override VmInstType Type => VmInstType.LD;
 
-    public byte StackIndex { get; set; }
+    public byte LocalIndex { get; set; }
 
     public VmLoad()
     {
@@ -22,21 +22,26 @@ public class VmLoad : VMInstructionBase
 
     public VmLoad(byte idIndex)
     {
-        StackIndex = idIndex;
+        LocalIndex = idIndex;
     }
 
     public override void Read(ref SpanReader sr)
     {
-        StackIndex = sr.ReadByte();
+        LocalIndex = sr.ReadByte();
     }
 
     public override void Write(BinaryStream bs)
     {
-        bs.WriteByte(StackIndex);
+        bs.WriteByte(LocalIndex);
     }
 
     public override int GetSize()
     {
         return sizeof(byte);
+    }
+
+    public override string ToString()
+    {
+        return $"{Type} - Local Index: {LocalIndex}";
     }
 }

@@ -39,4 +39,9 @@ public class VmPlugin : VMInstructionBase
     {
         return sizeof(byte);
     }
+
+    public override string ToString()
+    {
+        return $"{Type} - Plugin Import Index: {PluginImportIndex}";
+    }
 }

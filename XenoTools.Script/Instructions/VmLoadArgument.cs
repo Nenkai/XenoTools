@@ -9,30 +9,30 @@ using System.Threading.Tasks;
 
 namespace XenoTools.Script.Instructions;
 
-public class VmGetter : VMInstructionBase
+public class VmLoadArgument : VMInstructionBase
 {
-    public override VmInstType Type => VmInstType.GETTER;
+    public override VmInstType Type => VmInstType.LD_ARG;
 
-    public byte IDIndex { get; set; }
+    public byte ArgumentIndex { get; set; }
 
-    public VmGetter()
+    public VmLoadArgument()
     {
-
+        
     }
 
-    public VmGetter(byte idIndex)
+    public VmLoadArgument(byte argumentIndex)
     {
-        IDIndex = idIndex;
+        ArgumentIndex = argumentIndex;
     }
 
     public override void Read(ref SpanReader sr)
     {
-        IDIndex = (byte)ReadValue(ref sr);
+        ArgumentIndex = sr.ReadByte();
     }
 
     public override void Write(BinaryStream bs)
     {
-        bs.WriteByte(IDIndex);
+        bs.WriteByte(ArgumentIndex);
     }
 
     public override int GetSize()
@@ -42,6 +42,6 @@ public class VmGetter : VMInstructionBase
 
     public override string ToString()
     {
-        return $"{Type} - Getter: {IDIndex}";
+        return $"{Type} - Argument Index: {ArgumentIndex}";
     }
 }

@@ -9,39 +9,39 @@ using System.Threading.Tasks;
 
 namespace XenoTools.Script.Instructions;
 
-public class VmGetter : VMInstructionBase
+public class VmGetOC_Word : VMInstructionBase
 {
-    public override VmInstType Type => VmInstType.GETTER;
+    public override VmInstType Type => VmInstType.GET_OC_W;
 
-    public byte IDIndex { get; set; }
+    public ushort OCIndex { get; set; }
 
-    public VmGetter()
+    public VmGetOC_Word()
     {
 
     }
 
-    public VmGetter(byte idIndex)
+    public VmGetOC_Word(ushort ocIndex)
     {
-        IDIndex = idIndex;
+        OCIndex = ocIndex;
     }
 
     public override void Read(ref SpanReader sr)
     {
-        IDIndex = (byte)ReadValue(ref sr);
+        OCIndex = (ushort)ReadValue(ref sr);
     }
 
     public override void Write(BinaryStream bs)
     {
-        bs.WriteByte(IDIndex);
+        bs.WriteUInt16(OCIndex);
     }
 
     public override int GetSize()
     {
-        return sizeof(byte);
+        return sizeof(ushort);
     }
 
     public override string ToString()
     {
-        return $"{Type} - Getter: {IDIndex}";
+        return $"{Type} - OC Index: {OCIndex}";
     }
 }

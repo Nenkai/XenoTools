@@ -39,4 +39,9 @@ public class VmGetOC : VMInstructionBase
     {
         return sizeof(byte);
     }
+
+    public override string ToString()
+    {
+        return $"{Type} - OC Index: {OCIndex}";
+    }
 }

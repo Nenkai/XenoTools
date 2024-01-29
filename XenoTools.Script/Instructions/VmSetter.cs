@@ -39,4 +39,9 @@ public class VmSetter : VMInstructionBase
     {
         return sizeof(byte);
     }
+
+    public override string ToString()
+    {
+        return $"{Type} - ID Index: {IDIndex}";
+    }
 }

@@ -8,6 +8,7 @@ namespace XenoTools.Script.Entities
 {
     public class ObjectConstructor
     {
-        public short NameID { get; set; }
+        public int ID { get; set; }
+        public int NameID { get; set; }
     }
 }

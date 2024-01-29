@@ -39,4 +39,9 @@ public class VmStoreStatic : VMInstructionBase
     {
         return sizeof(byte);
     }
+
+    public override string ToString()
+    {
+        return $"{Type} - Static Index: {StaticIndex}";
+    }
 }

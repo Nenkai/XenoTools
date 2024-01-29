@@ -39,4 +39,9 @@ public class VmSetter_Word : VMInstructionBase
     {
         return sizeof(ushort);
     }
+
+    public override string ToString()
+    {
+        return $"{Type} - ID Index: {IDIndex}";
+    }
 }

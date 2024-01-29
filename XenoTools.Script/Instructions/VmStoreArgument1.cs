@@ -9,24 +9,22 @@ using System.Threading.Tasks;
 
 namespace XenoTools.Script.Instructions;
 
-public class VmLoadArg : VMInstructionBase
+public class VmStoreArgument1 : VMInstructionBase
 {
-    public override VmInstType Type => VmInstType.LD_ARG;
-
-    public byte ArgCount { get; set; }
+    public override VmInstType Type => VmInstType.ST_ARG_1;
 
     public override void Read(ref SpanReader sr)
     {
-        ArgCount = sr.ReadByte();
+
     }
 
     public override void Write(BinaryStream bs)
     {
-        bs.WriteByte(ArgCount);
+
     }
 
     public override int GetSize()
     {
-        return sizeof(byte);
+        return 0;
     }
 }

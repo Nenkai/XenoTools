@@ -39,4 +39,9 @@ public class VmConstInteger : VMInstructionBase
     {
         return sizeof(byte);
     }
+
+    public override string ToString()
+    {
+        return $"{Type}";
+    }
 }

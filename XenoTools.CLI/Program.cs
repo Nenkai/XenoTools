@@ -62,8 +62,12 @@ namespace XenoTools.CLI
 
         public static void CompileScript(CompileScriptVerbs compileScriptVerbs)
         {
-            var comp = new ScriptCompiler();
+            var comp = new ScriptCompiler(compileScriptVerbs.InputPath);
             var state = comp.Compile(File.ReadAllText(compileScriptVerbs.InputPath));
+            if (state is null)
+            {
+                ;
+            }
 
             using (var outp = new FileStream(compileScriptVerbs.OutputPath, FileMode.Create))
             { 
@@ -71,9 +75,17 @@ namespace XenoTools.CLI
                 gen.Write(outp);
             }
 
-            var f = File.ReadAllBytes(compileScriptVerbs.OutputPath);
-            var h = new ScriptFile();
-            h.Read(f);
+            /*
+            var ogFile = File.ReadAllBytes(@"original_0000f.sb");
+            var ogScript = new ScriptFile();
+            ogScript.Read(ogFile);
+            ogScript.Disassemble("orig.txt");
+
+            var newFile = File.ReadAllBytes(compileScriptVerbs.OutputPath);
+            var newScript = new ScriptFile();
+            newScript.Read(newFile);
+            newScript.Disassemble("compiled.txt");
+            */
         }
 
         public static void Import(SQLiteImportVerbs importVerbs)

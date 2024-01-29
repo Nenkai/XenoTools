@@ -29,4 +29,9 @@ public class VmJump : VMInstructionBase
     {
         return sizeof(ushort);
     }
+
+    public override string ToString()
+    {
+        return $"{Type} - Jump Offset: {JumpRelativeOffset}";
+    }
 }

@@ -39,4 +39,9 @@ public class VmSend_Word : VMInstructionBase
     {
         return sizeof(ushort);
     }
+
+    public override string ToString()
+    {
+        return $"{Type} - ID Index: {IDIndex}";
+    }
 }

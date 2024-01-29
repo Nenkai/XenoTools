@@ -39,4 +39,9 @@ public class VmPoolFloat_Word : VMInstructionBase
     {
         return sizeof(ushort);
     }
+
+    public override string ToString()
+    {
+        return $"{Type} - Float Index: {FloatIndex}";
+    }
 }
