@@ -52,8 +52,7 @@ namespace XenoTools.CLI
                 var bdat = new Bdat();
                 bdat.Regist(ii);
 
-                if (string.IsNullOrEmpty(ii))
-                    exportVerbs.OutputPath = $"{Path.GetFileNameWithoutExtension(exportVerbs.InputPath)}.sqlite";
+                exportVerbs.OutputPath = $"{Path.GetFileNameWithoutExtension(ii)}.sqlite";
 
                 var _con = new SQLiteExporter();
                 _con.InitConnection(ii + ".sqlite");
@@ -229,10 +228,10 @@ namespace XenoTools.CLI
         public string OutputPath { get; set; }
     }
 
-    [Verb("bdat-to-sqlite", HelpText = "Export bdat to a SQLite file.")]
+    [Verb("bdat-to-sqlite", HelpText = "Export bdats to a SQLite files.")]
     public class SQLiteExportVerbs
     {
-        [Option('i', "input", Required = true, HelpText = "Input bdat file.")]
+        [Option('i', "input", Required = true, HelpText = "Input folder with bdat files.")]
         public string InputPath { get; set; }
 
         [Option('o', "output", HelpText = "Output sqlite file.")]
