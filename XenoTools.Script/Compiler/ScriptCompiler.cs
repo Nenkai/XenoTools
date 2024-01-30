@@ -44,9 +44,10 @@ public class ScriptCompiler
     // actual privates
     private Dictionary<string, int> _definedStatics = [];
     private List<VmVariable> _statics = [];
-    private FunctionInfo _mainFunction;
     private FunctionInfo _currentFunctionFrame;
     private uint _currentPc;
+    private FunctionInfo _currentFrameForParsing;
+    private List<Statement> _topLevelStatements = [];
 
     /// <summary>
     /// To keep track of the current break controlled blocks, to compile break statements.
@@ -87,25 +88,40 @@ public class ScriptCompiler
 
     public CompiledScriptState Compile(Esprima.Ast.Script script)
     {
+        // All top level statements are put into one _main_ function as the entrypoint
+        short mainNameId = (short)AddIdentifier("_main_");
+        var topLevelFunc = new FunctionInfo()
+        {
+            NameID = mainNameId,
+            HasReturnValue = false,
+            ID = _lastFunctionID++,
+        };
+        _funcPool.Add("_main_", topLevelFunc);
+
+        // Scan the script for all the function declarations, top level statements & statics
         ScanScript(script.Body);
 
-        if (_mainFunction is null)
-        {
-            ThrowCompilationError(CompilationErrorMessages.MissingMainFunction);
-            return null;
-        }
+        // All top level statements have been scanned, create the _main_ entrypoint
+        var func = new FunctionDeclaration(
+            id: new Identifier("_main_"),
+            parameters: NodeList.Create(Enumerable.Empty<Expression>()),
+            body: new BlockStatement(NodeList.Create(_topLevelStatements)),
+            false,
+            false);
+        CompileFunctionDeclaration(func, allowMain: true);
 
-        InsertInstruction(new VmExit());
-
+        // Proceed to compile the rest of the script.
         CompileStatements(script.Body);
 
-        int s = AddIdentifier(_fileName);
-        _systemAttributes.Add(new SystemAttribute() { NameID = (short)s });
+        // System attributes are used to tell/name scripts aka packages apart, they are mandatory.
+        // Must end with -1.
+        int fileNameID = AddIdentifier(_fileName);
+        _systemAttributes.Add(new SystemAttribute() { NameID = (short)fileNameID });
         _systemAttributes.Add(new SystemAttribute() { NameID = -1 });
 
         return new CompiledScriptState
         {
-            EntryPointFunctionID = (uint)_mainFunction.ID,
+            EntryPointFunctionID = (uint)_funcPool["_main_"].ID,
             Code = _code,
             IdentifierPool = _identifierPool,
             IntPool = _intPool,
@@ -120,9 +136,6 @@ public class ScriptCompiler
         };
     }
 
-    private FunctionInfo currentFrameForParsing;
-    private FunctionDeclaration _mainFunctionNode;
-
     /// <summary>
     /// Scan the script for all identifiers/functions.
     /// This will work as a "first pass" scan to check for defined symbols.
@@ -130,17 +143,15 @@ public class ScriptCompiler
     /// <param name="node"></param>
     private void ScanScript(NodeList<Statement> body)
     {
-        foreach (var statements in body)
+        foreach (Statement statement in body)
         {
-            ScanNode(statements);
-        }
-
-        foreach (var subNode in _mainFunctionNode.ChildNodes)
-        {
-            if (subNode is null)
-                continue;
-
-            ScanNode(subNode);
+            if (statement.Type == Nodes.FunctionDeclaration || statement.Type == Nodes.StaticDeclaration)
+                ScanNode(statement);
+            else
+            {
+                if (statement.Type != Nodes.SourceFileStatement)
+                    _topLevelStatements.Add(statement);
+            }
         }
 
         foreach (var statements in body)
@@ -159,37 +170,32 @@ public class ScriptCompiler
 
         if (node is FunctionDeclaration function)
         {
-            _mainFunctionNode = function;
+            AddIdentifier(function.Id.Name);
 
             FunctionInfo frame = new()
             {
                 ID = _lastFunctionID++,
-                NameID = (short)AddIdentifier(function.Id.Name),
+                NameID = (short)_identifierPool.IndexOf(function.Id.Name),
                 NumArguments = (ushort)function.Params.Count
             };
-            currentFrameForParsing = frame;
-
-            if (function.Id.Name == "_main_")
-            {
-                if (_mainFunction is not null)
-                    ThrowCompilationError(node, CompilationErrorMessages.MainFunctionAlreadyDeclared);
-
-                if (function.Params.Count > 0)
-                    ThrowCompilationError(node, CompilationErrorMessages.CannotDeclareArgumentsInMain);
-
-                _mainFunction = frame;
-            }
-
+            _currentFrameForParsing = frame;
 
             if (!_funcPool.TryAdd(function.Id.Name, frame))
                 ThrowCompilationError(node, CompilationErrorMessages.FunctionRedeclaration);
         }
         else if (node is Identifier ident)
         {
-            if (currentFrameForParsing == _mainFunction)
+            if (_currentFrameForParsing is null)
                 return;
 
             AddIdentifier(ident.Name);
+        }
+        else if (node is StaticDeclaration staticDecl)
+        {
+            if (_currentFrameForParsing is not null)
+                ThrowCompilationError(CompilationErrorMessages.StaticDeclarationInFunction);
+
+            PreProcessStaticDeclaration(staticDecl);
         }
 
         if (node.ChildNodes.Count > 0)
@@ -204,7 +210,7 @@ public class ScriptCompiler
         }
 
         if (node is FunctionDeclaration)
-            currentFrameForParsing = null;
+            _currentFrameForParsing = null;
     }
 
     public void CompileStatements(NodeList<Statement> nodes)
@@ -224,7 +230,10 @@ public class ScriptCompiler
             return; // TODO
 
         if (_currentFunctionFrame is null && (node.Type != Nodes.FunctionDeclaration && node.Type != Nodes.StaticDeclaration))
-            ThrowCompilationError(node, CompilationErrorMessages.StatementInTopFrame);
+            return;
+
+        if (node.Type == Nodes.StaticDeclaration)
+            return;
 
         switch (node.Type)
         {
@@ -250,7 +259,7 @@ public class ScriptCompiler
                 CompileDoWhileStatement(node.As<DoWhileStatement>()); break;
 
             case Nodes.StaticDeclaration:
-                CompileStaticDeclaration(node.As<StaticDeclaration>()); break;
+                PreProcessStaticDeclaration(node.As<StaticDeclaration>()); break;
 
             case Nodes.VariableDeclaration:
                 CompileVariableDeclaration(node.As<VariableDeclaration>()); break;
@@ -278,15 +287,15 @@ public class ScriptCompiler
         if (retnStatement.Argument is not null)
         {
             CompileExpression(retnStatement.Argument);
-            _currentFunctionFrame.HasReturnValue = true; // TODO
+            _currentFunctionFrame.HasReturnValue = true;
         }
         InsertInstruction(new VmRet());
     }
 
     private void CompileVariableDeclaration(VariableDeclaration varDecl)
     {
-        if (_currentFunctionFrame == _mainFunction)
-            ThrowCompilationError(varDecl, CompilationErrorMessages.CannotDeclareLocalsInMain);
+        if (_currentFunctionFrame is null)
+            ThrowCompilationError(varDecl, CompilationErrorMessages.CannotDeclareLocalsInTopLevel);
 
         foreach (VariableDeclarator declarator in varDecl.Declarations)
         {
@@ -301,19 +310,25 @@ public class ScriptCompiler
 
             StackLocals stackLocals = _localPool[_currentFunctionFrame.LocalPoolIndex];
 
-            if (stackLocals.Locals.ContainsKey(id.Name))
+            if (stackLocals.NamedLocals.ContainsKey(id.Name))
                 ThrowCompilationError(id, CompilationErrorMessages.VariableRedeclaration);
 
             VmVariable local = ProcessDeclarator(declarator, varDecl.Kind);
             local.ID = _lastLocalID++;
-            stackLocals.Locals.Add(id.Name, local);
+
+            stackLocals.NamedLocals.Add(id.Name, local);
+            stackLocals.Locals.Add(local);
+
         }
     }
 
-    private void CompileFunctionDeclaration(FunctionDeclaration funcDecl)
+    private void CompileFunctionDeclaration(FunctionDeclaration funcDecl, bool allowMain = false)
     {
         if (_currentFunctionFrame is not null)
             ThrowCompilationError(funcDecl, CompilationErrorMessages.NestedFunctionDeclaration);
+
+        if (!allowMain && funcDecl.Id.Name == "_main_")
+            ThrowCompilationError(funcDecl, CompilationErrorMessages.MainFunctionAlreadyDeclared);
 
         _currentFunctionFrame = _funcPool[funcDecl.Id.Name];
         _currentFunctionFrame.CodeStartOffset = _currentPc;
@@ -341,21 +356,20 @@ public class ScriptCompiler
 
         CompileStatement(funcDecl.Body);
 
-        if (_currentFunctionFrame == _mainFunction)
+        _currentFunctionFrame.CodeEndOffset = _currentPc;
+        if (funcDecl.Id.Name == "_main_")
             InsertInstruction(new VmExit());
         else
             InsertInstruction(new VmRet());
 
-        _currentFunctionFrame.CodeEndOffset = _currentPc;
-
         if (_currentFunctionFrame.LocalPoolIndex != -1)
-            _currentFunctionFrame.NumLocals = (ushort)_localPool[_currentFunctionFrame.LocalPoolIndex].Locals.Count;
+            _currentFunctionFrame.NumLocals = (ushort)_localPool[_currentFunctionFrame.LocalPoolIndex].NamedLocals.Count;
 
         _currentFunctionFrame = null;
         _lastLocalID = 0;
     }
 
-    private void CompileStaticDeclaration(StaticDeclaration staticDecl)
+    private void PreProcessStaticDeclaration(StaticDeclaration staticDecl)
     {
         if (_currentFunctionFrame is not null)
             ThrowCompilationError(staticDecl, CompilationErrorMessages.StaticDeclarationInFunction);
@@ -391,7 +405,15 @@ public class ScriptCompiler
         if (decl.Init.Type == Nodes.Literal)
         {
             Literal literal = decl.Init.As<Literal>();
-            scVar.Value = literal.Value;
+            if (literal.TokenType == TokenType.StringLiteral)
+            {
+                if (!_stringPool.Contains((string)literal.Value))
+                    _stringPool.Add((string)literal.Value);
+
+                scVar.Value = _stringPool.IndexOf((string)literal.Value);
+            }
+            else
+                scVar.Value = literal.Value;
 
             if (isStatic)
                 _statics.Add(scVar);
@@ -404,9 +426,16 @@ public class ScriptCompiler
             scVar.Value = _lastStaticID;
 
             if (isStatic)
+            {
                 _statics.Add(scVar);
+                ProcessArray(arrayExp, _statics, ref _lastStaticID);
+            }
+            else
+            {
+                var locals = _localPool[_currentFunctionFrame.LocalPoolIndex].Locals;
+                ProcessArray(arrayExp, locals, ref _lastLocalID);
+            }
 
-            ProcessArray(arrayExp, isStatic);
         }
         else
             ThrowCompilationError(decl.Init, CompilationErrorMessages.UnexpectedVariableDeclaratorType);
@@ -414,17 +443,42 @@ public class ScriptCompiler
         return scVar;
     }
 
-    private void ProcessArray(ArrayExpression arrayExp, bool isStatic = false)
+    private void ProcessArray(ArrayExpression arrayExp, List<VmVariable> varList, ref int lastIdx)
     {
-        int start = _lastStaticID;
+        int start = lastIdx;
         foreach (var elem in arrayExp.Elements)
         {
             VmVariable arrElem = new VmVariable();
-            arrElem.ID = _lastStaticID++;
+            arrElem.ID = lastIdx++;
 
             if (elem.Type == Nodes.ArrayExpression)
             {
                 arrElem.Type = LocalType.Array;
+            }
+            else if (elem.Type == Nodes.UnaryExpression)
+            {
+                var unary = elem.As<UnaryExpression>();
+                if (unary.Argument.Type == Nodes.Literal && unary.Operator == UnaryOperator.Minus)
+                {
+                    Literal literal = unary.Argument.As<Literal>();
+
+                    switch (literal.NumericTokenType)
+                    {
+                        case NumericTokenType.Float:
+                            CompileFloatLiteral(-(float)literal.Value);
+                            break;
+
+                        case NumericTokenType.Integer:
+                            CompileIntegerLiteral(-(int)literal.Value);
+                            break;
+
+                        default:
+                            ThrowCompilationError(literal, CompilationErrorMessages.UnaryInvalidLiteralType);
+                            break;
+                    }
+                }
+                else
+                    ThrowCompilationError(elem, CompilationErrorMessages.UnsupportedArrayElement);
             }
             else if (elem.Type == Nodes.Literal)
             {
@@ -455,6 +509,7 @@ public class ScriptCompiler
             _statics.Add(arrElem);
         }
 
+
         for (int i = 0; i < arrayExp.Elements.Count; i++)
         {
             VmVariable subArr = _statics[start + i];
@@ -462,12 +517,11 @@ public class ScriptCompiler
             {
                 subArr.Type = LocalType.Array;
                 subArr.ArraySize = (uint)arrayExp.Elements.Count;
-                subArr.Value = _lastStaticID;
-                
-                ProcessArray(arrayExp.Elements[i].As<ArrayExpression>());
+                subArr.Value = lastIdx;
+
+                ProcessArray(arrayExp.Elements[i].As<ArrayExpression>(), varList, ref lastIdx);
             }
         }
-
     }
 
     private void CompileExpressionStatement(ExpressionStatement expStatement)
@@ -652,8 +706,8 @@ public class ScriptCompiler
             if (inst is null)
                 ThrowCompilationError(assignmentExpression, CompilationErrorMessages.UnsupportedAssignmentExpression);
 
-            CompileExpression(assignmentExpression.Left);
             CompileExpression(assignmentExpression.Right);
+            CompileExpression(assignmentExpression.Left);
 
             InsertInstruction(inst);
 
@@ -723,7 +777,7 @@ public class ScriptCompiler
         switch (type)
         {
             case DeclType.Local:
-                int localIndex = _localPool[_currentFunctionFrame.LocalPoolIndex].Locals[id.Name].ID;
+                int localIndex = _localPool[_currentFunctionFrame.LocalPoolIndex].NamedLocals[id.Name].ID;
                 switch (localIndex)
                 {
                     case 0:
@@ -780,7 +834,8 @@ public class ScriptCompiler
                 break;
 
             default:
-                throw new NotImplementedException();
+                ThrowCompilationError(id, "Assignment to invalid identifier");
+                break;
         }
     }
 
@@ -844,7 +899,7 @@ public class ScriptCompiler
             {
                 swInstruction.DefaultCaseRelativeJumpOffset = (int)(_currentPc - startOffset);
 
-                if (swCase.Consequent.Count != 1 && swCase.Consequent[0].Type != Nodes.BreakStatement)
+                if (swCase.Consequent.Count != 0 && swCase.Consequent[0].Type != Nodes.BreakStatement)
                     CompileStatements(swCase.Consequent);
             }
         }
@@ -869,21 +924,22 @@ public class ScriptCompiler
     {
         if (allowOC && OCs.Contains(identifier))
             return DeclType.OC;
+
+        // order should not be changed
+        if (_currentFunctionFrame is not null)
+        {
+            if (_currentFunctionFrame.LocalPoolIndex != -1 && _localPool[_currentFunctionFrame.LocalPoolIndex].NamedLocals.ContainsKey(identifier))
+                return DeclType.Local;
+            if (_currentFunctionFrame.Arguments.Contains(identifier))
+                return DeclType.FunctionArgument;
+        }
+
         if (_definedStatics.ContainsKey(identifier))
             return DeclType.Static;
         else if (_funcPool.ContainsKey(identifier))
             return DeclType.Function;
-        else if (_currentFunctionFrame is not null)
-        {
-            if (_currentFunctionFrame.Arguments.Contains(identifier))
-            {
-                return DeclType.FunctionArgument;
-            }
-            if (_currentFunctionFrame.LocalPoolIndex != -1 && _localPool[_currentFunctionFrame.LocalPoolIndex].Locals.ContainsKey(identifier))
-                return DeclType.Local;
-        }
-
-        return DeclType.Undefined;
+        else 
+            return DeclType.Undefined;
     }
 
     private void CompileIfStatement(IfStatement ifStatement)
@@ -1093,6 +1149,7 @@ public class ScriptCompiler
                 if (call.Arguments.Count != 1)
                     ThrowCompilationError(call, CompilationErrorMessages.MissingTypeOfArgument);
 
+                CompileExpression(call.Arguments[0]);
                 InsertInstruction(new VmTypeOf());
                 return;
             }
@@ -1101,6 +1158,7 @@ public class ScriptCompiler
                 if (call.Arguments.Count != 1)
                     ThrowCompilationError(call, CompilationErrorMessages.MissingTypeOfArgument);
 
+                CompileExpression(call.Arguments[0]);
                 InsertInstruction(new VmSizeOf());
                 return;
             }
@@ -1145,6 +1203,12 @@ public class ScriptCompiler
                 else
                     ThrowCompilationError(id, CompilationErrorMessages.ExceededMaximumFunctionCount);
             }
+            else if (type == DeclType.Local)
+            {
+                // Call indirect
+                CompileExpression(call.Callee);
+                InsertInstruction(new VmCallIndirect());
+            }
             else
                 ThrowCompilationError(call.Callee, CompilationErrorMessages.CallToUndeclaredFunction);
         }
@@ -1165,6 +1229,8 @@ public class ScriptCompiler
                 AddIdentifier(propId.Name);
 
                 int idx = _identifierPool.IndexOf(propId.Name);
+                if (idx == -1)
+                    ThrowCompilationError(propId, "bug? identifier not found?");
 
                 if (idx <= byte.MaxValue)
                     InsertInstruction(new VmSend((byte)idx));
@@ -1209,6 +1275,23 @@ public class ScriptCompiler
 
     private void CompileBinaryExpression(BinaryExpression binExpression)
     {
+        if (binExpression.Right.Type == Nodes.Literal && (binExpression.Operator == BinaryOperator.Plus || binExpression.Operator == BinaryOperator.Minus))
+        {
+            // something +/- 1? Short to increment/decrement
+
+            Literal lit = binExpression.Right.As<Literal>();
+            if (lit.NumericTokenType == NumericTokenType.Integer && ((int)lit.Value) == 1)
+            {
+                CompileExpression(binExpression.Left);
+                if (binExpression.Operator == BinaryOperator.Plus)
+                    InsertInstruction(new VmIncrement());
+                else
+                    InsertInstruction(new VmDecrement());
+
+                return;
+            }
+        }
+        
         CompileExpression(binExpression.Right);
         CompileExpression(binExpression.Left);
 
@@ -1231,6 +1314,36 @@ public class ScriptCompiler
                 break;
             case BinaryOperator.LessOrEqual:
                 InsertInstruction(new VmLesserOrEquals());
+                break;
+            case BinaryOperator.Plus:
+                InsertInstruction(new VmAdd());
+                break;
+            case BinaryOperator.Minus:
+                InsertInstruction(new VmSubtract());
+                break;
+            case BinaryOperator.Times:
+                InsertInstruction(new VmMultiply());
+                break;
+            case BinaryOperator.Modulo:
+                InsertInstruction(new VmModulo());
+                break;
+            case BinaryOperator.Divide:
+                InsertInstruction(new VmDivide());
+                break;
+            case BinaryOperator.BitwiseAnd:
+                InsertInstruction(new VmBitwiseAnd());
+                break;
+            case BinaryOperator.BitwiseOr:
+                InsertInstruction(new VmBitwiseOr());
+                break;
+            case BinaryOperator.LeftShift:
+                InsertInstruction(new VmBitwiseLeftShift());
+                break;
+            case BinaryOperator.RightShift:
+                InsertInstruction(new VmBitwiseRightShift());
+                break;
+            default:
+                ThrowCompilationError(binExpression, "Unsupported binary operator");
                 break;
         }
     }
@@ -1266,7 +1379,7 @@ public class ScriptCompiler
                 break;
 
             case DeclType.Local:
-                int idIndex = _localPool[_currentFunctionFrame.LocalPoolIndex].Locals[identifier.Name].ID;
+                int idIndex = _localPool[_currentFunctionFrame.LocalPoolIndex].NamedLocals[identifier.Name].ID;
                 if (idIndex == -1)
                     ThrowCompilationError(identifier, "bug? Undeclared local?");
 

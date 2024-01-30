@@ -22,6 +22,7 @@ public class SbHeader
     public uint LocalPoolOfs;
     public uint SystemAtrOfs;
     public uint AttributesOfs;
+    public uint DebugSymsOfs;
 
     public void Read(Span<byte> data)
     {
@@ -44,6 +45,7 @@ public class SbHeader
         LocalPoolOfs = sr.ReadUInt32();
         SystemAtrOfs = sr.ReadUInt32();
         AttributesOfs = sr.ReadUInt32();
+        DebugSymsOfs = sr.ReadUInt32();
 
         if (Flags.HasFlag(SbHeaderFlags.Scrambled))
             encodeScramble(data);
@@ -83,10 +85,17 @@ public class SbHeader
             byte _3 = data[i + 2];
             byte _4 = data[i + 3];
 
-            data[i] = (byte)((_1 >> 2) + (_4 << 6));
-            data[i + 1] = (byte)((_2 >> 2) + (_1 << 6));
-            data[i + 2] = (byte)((_3 >> 2) + (_2 << 6));
-            data[i + 3] = (byte)((_4 >> 2) + (_3 << 6));
+            if (size - i >= 1)
+                data[i] = (byte)((_1 >> 2) + (_4 << 6));
+
+            if (size - i >= 2)
+                data[i + 1] = (byte)((_2 >> 2) + (_1 << 6));
+
+            if (size - i >= 3)
+                data[i + 2] = (byte)((_3 >> 2) + (_2 << 6));
+
+            if (size - i >= 4)
+                data[i + 3] = (byte)((_4 >> 2) + (_3 << 6));
         }
 
     }

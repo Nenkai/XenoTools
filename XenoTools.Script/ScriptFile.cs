@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -22,6 +23,9 @@ public class ScriptFile
     public List<string> StringPool { get; set; } = new();
     public List<FunctionInfo> Functions { get; set; } = new();
     public List<PluginImport> PluginImports { get; set; } = new();
+
+    public DebugInfo DebugInfo { get; set; } = new();
+
     static ScriptFile()
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
@@ -39,6 +43,7 @@ public class ScriptFile
         ReadStringPool(ref sr);
         ReadFunctions(ref sr);
         ReadPluginImports(ref sr);
+        ReadDebugSymbols(ref sr);
     }
 
     private void ReadCode(ref SpanReader sr)
@@ -167,7 +172,7 @@ public class ScriptFile
             var func = new FunctionInfo();
             func.NameID = sr.ReadInt16();
             func.NumArguments = sr.ReadUInt16();
-            sr.ReadUInt16();
+            func.HasReturnValue = sr.ReadUInt16() == 1;
             func.NumLocals = sr.ReadUInt16();
             func.LocalPoolIndex = sr.ReadInt16();
             sr.ReadInt16();
@@ -178,14 +183,25 @@ public class ScriptFile
         }
     }
 
+    private void ReadDebugSymbols(ref SpanReader sr)
+    {
+        if (Header.DebugSymsOfs == 0)
+            return;
+
+        sr.Position = (int)Header.DebugSymsOfs;
+        DebugInfo.Read(ref sr);
+    }
+
     public void Disassemble(string output)
     {
         using var sw = new StreamWriter(output);
 
+        /*
         for (int i = 0; i < Identifiers.Count; i++)
         {
             sw.WriteLine($"[{i}] - {Identifiers[i]}");
         }
+        */
 
         for (int i = 0; i < Functions.Count; i++)
         {
@@ -206,6 +222,15 @@ public class ScriptFile
         for (int i = 0; i < insts.Length; i++)
         {
             VMInstructionBase inst = insts[i];
+            if (false)
+            {
+                if (DebugInfo.Lines.TryGetValue(inst.Offset, out DebugInfo.LineInfo lineInfo))
+                {
+                    string fileName = DebugInfo.FileNames[lineInfo.SourceNameID];
+                    sw.WriteLine($"; {fileName}:{lineInfo.LineNumber}");
+                }
+            }
+
             sw.Write($"    " + inst.Type);
 
             switch (inst.Type)
@@ -229,10 +254,10 @@ public class ScriptFile
                     sw.Write($": {FixedPool[((VmPoolFloat_Word)inst).FloatIndex]}");
                     break;
                 case VmInstType.POOL_STR:
-                    sw.Write($": {StringPool[((VmPoolString)inst).StringIndex]}");
+                    sw.Write($": \"{StringPool[((VmPoolString)inst).StringIndex]}\"");
                     break;
                 case VmInstType.POOL_STR_W:
-                    sw.Write($": {StringPool[((VmPoolString_Word)inst).StringIndex]}");
+                    sw.Write($": \"{StringPool[((VmPoolString_Word)inst).StringIndex]}\"");
                     break;
                 case VmInstType.LD:
                     sw.Write($": {((VmLoad)inst).LocalIndex}");
@@ -247,6 +272,8 @@ public class ScriptFile
                     sw.Write($": {((VmStoreArgument)inst).ArgumentIndex}");
                     break;
                 case VmInstType.LD_STATIC:
+                    sw.Write($": {((VmLoadStatic)inst).StaticIndex}");
+
                     break;
                 case VmInstType.LD_STATIC_W:
                     break;
@@ -307,8 +334,10 @@ public class ScriptFile
                 case VmInstType.SETTER_W:
                     break;
                 case VmInstType.SEND:
+                    sw.Write($": {Identifiers[((VmSend)inst).IDIndex]}");
                     break;
                 case VmInstType.SEND_W:
+                    sw.Write($": {Identifiers[((VmSend_Word)inst).IDIndex]}");
                     break;
                 case VmInstType.SWITCH:
                     break;
@@ -336,7 +365,7 @@ public class ScriptFile
         {
             if (Code[i].Offset >= func.CodeEndOffset)
             {
-                end = i;
+                end = i + 1;
                 break;
             }
         }

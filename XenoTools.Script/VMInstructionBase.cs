@@ -120,7 +120,7 @@ public abstract class VMInstructionBase
             VmInstType.JPF => new VmJumpFalse(),
             VmInstType.CALL => new VmCall(),
             VmInstType.CALL_W => throw new NotImplementedException(),
-            VmInstType.CALL_IND => throw new NotImplementedException(),
+            VmInstType.CALL_IND => new VmCallIndirect(),
             VmInstType.RET => new VmRet(),
             VmInstType.NEXT => new VmNext(),
             VmInstType.PLUGIN => new VmPlugin(),

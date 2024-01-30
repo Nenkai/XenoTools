@@ -16,10 +16,8 @@ public class CompilationErrorMessages
     public const string FunctionRedeclaration = "Function already declared";
 
     // _main_
-    public const string MissingMainFunction = "_main_ function missing";
-    public const string MainFunctionAlreadyDeclared = "_main_ was already declared";
-    public const string CannotDeclareLocalsInMain = "Locals cannot be declared in _main_";
-    public const string CannotDeclareArgumentsInMain = "Arguments cannot be declared in _main_";
+    public const string MainFunctionAlreadyDeclared = "Cannot explicitly declare _main_";
+    public const string CannotDeclareLocalsInTopLevel = "Locals cannot be declared in the top level";
 
     // Weird syntax
     public const string StatementInTopFrame = "Non static or function declarations are not allowed in the top frame";

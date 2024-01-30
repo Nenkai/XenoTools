@@ -443,9 +443,9 @@ public class ScriptCodeGen
             StackLocals stackLocals = _compiledState.LocalPool[i];
             bs.Position = lastOffset;
             bs.WriteUInt32(0x08);
-            bs.WriteUInt32((uint)stackLocals.Locals.Count);
+            bs.WriteUInt32((uint)stackLocals.NamedLocals.Count);
 
-            foreach (VmVariable var in stackLocals.Locals.Values)
+            foreach (VmVariable var in stackLocals.NamedLocals.Values)
             {
                 bs.WriteByte((byte)var.Type);
                 bs.WriteByte(0);

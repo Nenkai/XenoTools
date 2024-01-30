@@ -28,9 +28,10 @@ namespace XenoTools.CLI
             Console.WriteLine("- https://github.com/Nenkai");
             Console.WriteLine("-----------------------------------------");
 
-            var p = Parser.Default.ParseArguments<CompileScriptVerbs, SQLiteExportVerbs/*, SQLiteImportVerbs*/>(args);
+            var p = Parser.Default.ParseArguments<CompileScriptVerbs, DisassembleScriptVerbs, SQLiteExportVerbs/*, SQLiteImportVerbs*/>(args);
 
             p.WithParsed<CompileScriptVerbs>(CompileScript)
+              .WithParsed<DisassembleScriptVerbs>(Disassemble)
               .WithParsed<SQLiteExportVerbs>(Export)
               /*.WithParsed<SQLiteImportVerbs>(Import)*/
               .WithNotParsed(HandleNotParsedArgs);
@@ -42,6 +43,7 @@ namespace XenoTools.CLI
             if (string.IsNullOrEmpty(exportVerbs.InputPath) || !File.Exists(exportVerbs.InputPath))
             {
                 Console.WriteLine("Provided input directory does not exist.");
+                Environment.ExitCode = -1;
                 return;
             }
 
@@ -122,10 +124,6 @@ namespace XenoTools.CLI
                 }
 
                 var compiler = new ScriptCompiler(compileScriptVerbs.InputPath);
-                //if (!string.IsNullOrWhiteSpace(compileScriptVerbs.BaseIncludeFolder))
-                //    compiler.SetBaseIncludeFolder(compileScriptVerbs.BaseIncludeFolder);
-
-                //compiler.SetSourcePath(compileScriptVerbs.InputPath);
 
                 var state = compiler.Compile(program);
                 PrintCompiledState(state);
@@ -161,17 +159,23 @@ namespace XenoTools.CLI
             Logger.Error("Script build failed.");
             Environment.ExitCode = -1;
 
-            /*
-            var ogFile = File.ReadAllBytes(@"original_0000f.sb");
+        }
+
+        public static void Disassemble(DisassembleScriptVerbs verbs)
+        {
+            if (!File.Exists(verbs.InputPath))
+            {
+                Logger.Error($"File {verbs.InputPath} does not exist.");
+                Environment.ExitCode = -1;
+                return;
+            }
+
+            var ogFile = File.ReadAllBytes(verbs.InputPath);
             var ogScript = new ScriptFile();
             ogScript.Read(ogFile);
-            ogScript.Disassemble("orig.txt");
+            ogScript.Disassemble(verbs.OutputPath);
 
-            var newFile = File.ReadAllBytes(compileScriptVerbs.OutputPath);
-            var newScript = new ScriptFile();
-            newScript.Read(newFile);
-            newScript.Disassemble("compiled.txt");
-            */
+            Environment.ExitCode = 0;
         }
 
         public static void Import(SQLiteImportVerbs importVerbs)
@@ -199,7 +203,7 @@ namespace XenoTools.CLI
         }
     }
 
-    [Verb("compile-script")]
+    [Verb("script-compile", HelpText = "Compiles a script file (.sc/.si into .sb).")]
     public class CompileScriptVerbs
     {
         [Option('i', "input", Required = true, HelpText = "Input script source file.")]
@@ -211,8 +215,18 @@ namespace XenoTools.CLI
         [Option('e', Required = false, HelpText = "Preprocess only and output to stdout. Only for compiling scripts.")]
         public bool PreprocessOnly { get; set; }
 
-        [Option('b', "base-include-folder", Required = false, HelpText = "Set the root path for #include statements (for files, not projects).")]
+        [Option('b', "base-include-folder", Required = false, HelpText = "Set the root path for #include statements.")]
         public string BaseIncludeFolder { get; set; }
+    }
+
+    [Verb("script-disassemble", HelpText = "Disassembles a script file (.sb).")]
+    public class DisassembleScriptVerbs
+    {
+        [Option('i', "input", Required = true, HelpText = "Input script source file.")]
+        public string InputPath { get; set; }
+
+        [Option('o', "output", Required = true, HelpText = "Output dissasembled file.")]
+        public string OutputPath { get; set; }
     }
 
     [Verb("bdat-to-sqlite", HelpText = "Export bdat to a SQLite file.")]

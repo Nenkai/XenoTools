@@ -8,6 +8,8 @@ namespace XenoTools.Script.Entities
 {
     public class StackLocals
     {
-        public Dictionary<string, VmVariable> Locals { get; set; } = [];
+        public Dictionary<string, VmVariable> NamedLocals { get; set; } = [];
+        public List<VmVariable> Locals { get; set; } = [];
+
     }
 }

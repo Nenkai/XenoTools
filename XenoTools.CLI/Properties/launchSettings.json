@@ -1,8 +1,0 @@
-{
-  "profiles": {
-    "XenoTools.CLI": {
-      "commandName": "Project",
-      "commandLineArgs": "compile-script -i \"C:\\Users\\nenkai\\Desktop\\root\\script\\scene\\0000f.sb\" -o \"C:\\Users\\nenkai\\AppData\\Roaming\\yuzu\\load\\0100FF500E34A000\\Nenmod\\romfs\\script\\0000f.sb\" -b C:\\Users\\nenkai\\Desktop\\root"
-    }
-  }
-}
