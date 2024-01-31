@@ -17,7 +17,6 @@
     <ProjectReference Include="..\XenoTools.BinaryData\XenoTools.BinaryData.csproj" />
     <ProjectReference Include="..\XenoTools.ResLayImg\XenoTools.Resources.csproj" />
     <ProjectReference Include="..\XenoTools.Script\XenoTools.Script.csproj" />
-    <ProjectReference Include="..\XenoTools\XenoTools.BinaryData.csproj" />
   </ItemGroup>
 
   <ItemGroup>
