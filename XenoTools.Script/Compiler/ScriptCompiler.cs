@@ -10,6 +10,7 @@ using XenoTools.Script.Instructions;
 using Esprima;
 using Esprima.Ast;
 using XenoTools.Script.Entities;
+using XenoTools.Script.Entities.Debugging;
 
 namespace XenoTools.Script.Compiler;
 
@@ -70,6 +71,8 @@ public class ScriptCompiler
     private List<StackLocals> _localPool = [];
     private Dictionary<string, ObjectConstructor> _ocPool = [];
     private List<SystemAttribute> _systemAttributes = [];
+    private DebugInfo _debugInfo;
+    private DebugInfoFunctionLocals _debugFuncLocalSyms;
 
     private int _lastFunctionID;
     private int _lastPluginImportID;
@@ -80,10 +83,15 @@ public class ScriptCompiler
     private int _lastOCID;
 
     private string _fileName;
+    private bool _debugPrintFunctions;
 
-    public ScriptCompiler(string fileName)
+    public ScriptCompiler(string fileName, bool withDebugInformation = false, bool debugPrintFunctions = false)
     {
         _fileName = fileName;
+        if (withDebugInformation)
+            _debugInfo = new DebugInfo();
+
+        _debugPrintFunctions = debugPrintFunctions;
     }
 
     public CompiledScriptState Compile(Esprima.Ast.Script script)
@@ -119,6 +127,15 @@ public class ScriptCompiler
         _systemAttributes.Add(new SystemAttribute() { NameID = (short)fileNameID });
         _systemAttributes.Add(new SystemAttribute() { NameID = -1 });
 
+        foreach (var l in _definedStatics)
+        {
+            _debugInfo?.StaticSyms?.Add((short)l.Value, new DebugInfoVariable()
+            {
+                NameID = (short)_identifierPool.IndexOf(l.Key),
+                ID = (short)l.Value,
+            });
+        }
+
         return new CompiledScriptState
         {
             EntryPointFunctionID = (uint)_funcPool["_main_"].ID,
@@ -133,6 +150,7 @@ public class ScriptCompiler
             LocalPool = _localPool,
             OCPool = _ocPool,
             SystemAttributes = _systemAttributes,
+            DebugInfo = _debugInfo,
         };
     }
 
@@ -227,7 +245,7 @@ public class ScriptCompiler
     public void CompileStatement(Node node)
     {
         if (node.Type == Nodes.SourceFileStatement)
-            return; // TODO
+            return;
 
         if (_currentFunctionFrame is null && (node.Type != Nodes.FunctionDeclaration && node.Type != Nodes.StaticDeclaration))
             return;
@@ -308,17 +326,20 @@ public class ScriptCompiler
                 _localPool.Add(new StackLocals());
             }
 
-            StackLocals stackLocals = _localPool[_currentFunctionFrame.LocalPoolIndex];
+            StackLocals stackLocals = GetLocalsForCurrentFunction();
 
             if (stackLocals.NamedLocals.ContainsKey(id.Name))
                 ThrowCompilationError(id, CompilationErrorMessages.VariableRedeclaration);
 
             VmVariable local = ProcessDeclarator(declarator, varDecl.Kind);
-            local.ID = _lastLocalID++;
 
             stackLocals.NamedLocals.Add(id.Name, local);
-            stackLocals.Locals.Add(local);
 
+            _debugFuncLocalSyms.Locals.Add(local.ID, new DebugInfoVariable()
+            {
+                ID = (short)local.ID,
+                NameID = (short)_identifierPool.IndexOf(id.Name),
+            });
         }
     }
 
@@ -332,6 +353,7 @@ public class ScriptCompiler
 
         _currentFunctionFrame = _funcPool[funcDecl.Id.Name];
         _currentFunctionFrame.CodeStartOffset = _currentPc;
+        _debugFuncLocalSyms = new DebugInfoFunctionLocals();
 
         foreach (Expression arg in funcDecl.Params)
         {
@@ -344,26 +366,36 @@ public class ScriptCompiler
             _currentFunctionFrame.Arguments.Add(argIdentifier.Name);
         }
 
-        /*
-        var test = new ExpressionStatement(new CallExpression(
-            callee: new StaticMemberExpression(new Identifier("deb"), new Identifier("put"), false),
-            args: NodeList.Create<Expression>(new[] { new Literal(funcDecl.Id.Name, funcDecl.Id.Name) }),
-            optional: false
-        ));
+        if (_debugPrintFunctions)
+        {
+            var debPutCall = new ExpressionStatement(new CallExpression(
+                callee: new StaticMemberExpression(new Identifier("deb"), new Identifier("put"), false),
+                args: NodeList.Create<Expression>(new[] { new Literal(funcDecl.Id.Name, funcDecl.Id.Name) }),
+                optional: false
+            ));
 
-        CompileStatement(test);
-        */
+            CompileStatement(debPutCall);
+        }
 
         CompileStatement(funcDecl.Body);
 
-        _currentFunctionFrame.CodeEndOffset = _currentPc;
         if (funcDecl.Id.Name == "_main_")
             InsertInstruction(new VmExit());
         else
-            InsertInstruction(new VmRet());
+        {
+            if (_code[^1].Type != VmInstType.RET || _currentFunctionFrame.CodeEndOffset == 0)
+                InsertInstruction(new VmRet());
+        }
 
         if (_currentFunctionFrame.LocalPoolIndex != -1)
-            _currentFunctionFrame.NumLocals = (ushort)_localPool[_currentFunctionFrame.LocalPoolIndex].NamedLocals.Count;
+        {
+            StackLocals stackLocals = GetLocalsForCurrentFunction();
+            _currentFunctionFrame.NumLocals = (ushort)stackLocals.NamedLocals.Count;
+        }
+
+        // Flush debug local syms for current function (if allowed)
+        _debugInfo?.FunctionLocalSymbols.Add(_debugFuncLocalSyms);
+        _debugFuncLocalSyms = null;
 
         _currentFunctionFrame = null;
         _lastLocalID = 0;
@@ -399,7 +431,7 @@ public class ScriptCompiler
         VmVariable scVar = new VmVariable()
         {
             Type = type,
-            ID = _lastStaticID++,
+            ID = isStatic ? _lastStaticID++ : _lastLocalID++,
         };
 
         if (decl.Init.Type == Nodes.Literal)
@@ -417,22 +449,34 @@ public class ScriptCompiler
 
             if (isStatic)
                 _statics.Add(scVar);
+            else
+            {
+                StackLocals stackLocals = GetLocalsForCurrentFunction();
+                List<VmVariable> locals = stackLocals.Locals;
+                locals.Add(scVar);
+            }
         }
         else if (decl.Init.Type == Nodes.ArrayExpression)
         {
             ArrayExpression arrayExp = decl.Init.As<ArrayExpression>();
             scVar.Type = LocalType.Array;
             scVar.ArraySize = (uint)arrayExp.Elements.Count;
-            scVar.Value = _lastStaticID;
-
+           
             if (isStatic)
             {
+                scVar.Value = _lastStaticID;
+
                 _statics.Add(scVar);
                 ProcessArray(arrayExp, _statics, ref _lastStaticID);
             }
             else
             {
-                var locals = _localPool[_currentFunctionFrame.LocalPoolIndex].Locals;
+                scVar.Value = _lastLocalID;
+
+                StackLocals stackLocals = GetLocalsForCurrentFunction();
+                List<VmVariable> locals = stackLocals.Locals;
+                locals.Add(scVar);
+
                 ProcessArray(arrayExp, locals, ref _lastLocalID);
             }
 
@@ -465,11 +509,13 @@ public class ScriptCompiler
                     switch (literal.NumericTokenType)
                     {
                         case NumericTokenType.Float:
-                            CompileFloatLiteral(-(float)literal.Value);
+                            arrElem.Type = LocalType.Fixed;
+                            arrElem.Value = (-(float)literal.Value);
                             break;
 
                         case NumericTokenType.Integer:
-                            CompileIntegerLiteral(-(int)literal.Value);
+                            arrElem.Type = LocalType.Int;
+                            arrElem.Value = -(int)literal.Value;
                             break;
 
                         default:
@@ -502,21 +548,35 @@ public class ScriptCompiler
 
                     arrElem.Value = _stringPool.IndexOf((string)literal.Value);
                 }
+                else if (literal.TokenType == TokenType.BooleanLiteral)
+                {
+                    if ((bool)literal.Value)
+                        arrElem.Type = LocalType.True;
+                    else
+                        arrElem.Type = LocalType.False;
+                }
+                else if (literal.TokenType == TokenType.NilLiteral)
+                {
+                    arrElem.Type = LocalType.Nil;
+                }
+                else
+                    ThrowCompilationError(literal, CompilationErrorMessages.UnsupportedArrayElement);
             }
             else
                 ThrowCompilationError(elem, CompilationErrorMessages.UnsupportedArrayElement);
 
-            _statics.Add(arrElem);
+            varList.Add(arrElem);
         }
 
 
         for (int i = 0; i < arrayExp.Elements.Count; i++)
         {
-            VmVariable subArr = _statics[start + i];
+            VmVariable subArr = varList[start + i];
             if (subArr.Type == LocalType.Array)
             {
+                var subArrExpr = arrayExp.Elements[i].As<ArrayExpression>();
                 subArr.Type = LocalType.Array;
-                subArr.ArraySize = (uint)arrayExp.Elements.Count;
+                subArr.ArraySize = (uint)subArrExpr.Elements.Count;
                 subArr.Value = lastIdx;
 
                 ProcessArray(arrayExp.Elements[i].As<ArrayExpression>(), varList, ref lastIdx);
@@ -777,7 +837,9 @@ public class ScriptCompiler
         switch (type)
         {
             case DeclType.Local:
-                int localIndex = _localPool[_currentFunctionFrame.LocalPoolIndex].NamedLocals[id.Name].ID;
+                StackLocals stackLocals = GetLocalsForCurrentFunction();
+                int localIndex = stackLocals.NamedLocals[id.Name].ID;
+
                 switch (localIndex)
                 {
                     case 0:
@@ -847,8 +909,8 @@ public class ScriptCompiler
 
         int startOffset = (int)_currentPc;
 
-        // switch cases have to be sorted (game uses bsearch)
-        SortedList<long, SwitchCase> orderedSwitchCases = new();
+        // keep track of cases to avoid dupes
+        HashSet<int> orderedSwitchCases = [];
 
         int numBranches = 0;
         bool hasDefault = false;
@@ -864,10 +926,10 @@ public class ScriptCompiler
                 if (lit.NumericTokenType != NumericTokenType.Integer)
                     ThrowCompilationError(lit, CompilationErrorMessages.ExpectedIntegerLiteralForSwitchTest);
 
-                if (orderedSwitchCases.ContainsKey((int)lit.Value))
+                if (orderedSwitchCases.Contains((int)lit.Value))
                     ThrowCompilationError(lit, CompilationErrorMessages.DuplicateSwitchCaseTest);
 
-                orderedSwitchCases.Add((int)lit.Value, swCase);
+                orderedSwitchCases.Add((int)lit.Value);
 
                 numBranches++;
                 if (numBranches > byte.MaxValue)
@@ -876,14 +938,13 @@ public class ScriptCompiler
             else
             {
                 hasDefault = true;
-                orderedSwitchCases.Add(long.MaxValue, swCase); // long hack for sorting
             }
         }
 
         var swInstruction = new VmSwitch() { NumBranches = (byte)numBranches };
         InsertInstruction(swInstruction);
 
-        foreach (SwitchCase swCase in orderedSwitchCases.Values)
+        foreach (SwitchCase swCase in switchStatement.Cases)
         {
             if (swCase.Test is not null) // Actual case
             {
@@ -892,23 +953,22 @@ public class ScriptCompiler
                     (int)lit.Value,
                     (int)(_currentPc - startOffset)
                 ));
-
-                CompileStatements(swCase.Consequent);
             }
             else // Default case
             {
                 swInstruction.DefaultCaseRelativeJumpOffset = (int)(_currentPc - startOffset);
-
-                if (swCase.Consequent.Count != 0 && swCase.Consequent[0].Type != Nodes.BreakStatement)
-                    CompileStatements(swCase.Consequent);
             }
+
+            CompileStatements(swCase.Consequent);
         }
+
+        swInstruction.Branches = swInstruction.Branches.OrderBy(e => e.Case).ToList();
 
         // Update break case jumps
         for (int i = 0; i < switchCtx.BreakJumps.Count; i++)
         {
-            (int PC, VmJump Instruction) swCase = switchCtx.BreakJumps[i];
-            swCase.Instruction.JumpRelativeOffset = (short)(_currentPc - swCase.PC);
+            (int PC, VmJump Instruction) = switchCtx.BreakJumps[i];
+            Instruction.JumpRelativeOffset = (short)(_currentPc - PC);
         }
 
         if (!hasDefault)
@@ -926,15 +986,12 @@ public class ScriptCompiler
             return DeclType.OC;
 
         // order should not be changed
-        if (_currentFunctionFrame is not null)
-        {
-            if (_currentFunctionFrame.LocalPoolIndex != -1 && _localPool[_currentFunctionFrame.LocalPoolIndex].NamedLocals.ContainsKey(identifier))
-                return DeclType.Local;
-            if (_currentFunctionFrame.Arguments.Contains(identifier))
-                return DeclType.FunctionArgument;
-        }
-
-        if (_definedStatics.ContainsKey(identifier))
+        StackLocals stackLocals = GetLocalsForCurrentFunction();
+        if (stackLocals is not null && stackLocals.NamedLocals.ContainsKey(identifier))
+            return DeclType.Local;
+        else if (_currentFunctionFrame is not null && _currentFunctionFrame.Arguments.Contains(identifier))
+            return DeclType.FunctionArgument;
+       else  if (_definedStatics.ContainsKey(identifier))
             return DeclType.Static;
         else if (_funcPool.ContainsKey(identifier))
             return DeclType.Function;
@@ -1001,17 +1058,16 @@ public class ScriptCompiler
         InsertInstruction(bodyJump);
         CompileStatement(forStatement.Body);
 
+        // Continues jumps to the update statement
+        foreach (var (JumpLocation, Instruction) in loopBlock.ContinueJumps)
+            Instruction.JumpRelativeOffset = (short)(_currentPc - JumpLocation);
+
         if (forStatement.Update is not null)
             CompileTestStatement(forStatement.Update);
 
         var jumpBack = new VmJump();
         jumpBack.JumpRelativeOffset = (short)(testOffset - _currentPc);
         InsertInstruction(jumpBack);
-
-        // Reached bottom, proceed to do update
-        // But first, process continue if any
-        foreach (var (JumpLocation, Instruction) in loopBlock.ContinueJumps)
-            Instruction.JumpRelativeOffset = (short)(testOffset - JumpLocation);
 
         bodyJump.JumpRelativeOffset = (short)(_currentPc - bodyStartOffset);
 
@@ -1558,6 +1614,14 @@ public class ScriptCompiler
         return -1;
     }
 
+    private StackLocals GetLocalsForCurrentFunction()
+    {
+        if (_currentFunctionFrame is null || _currentFunctionFrame.LocalPoolIndex == -1)
+            return null;
+
+        return _localPool[_currentFunctionFrame.LocalPoolIndex];
+    }
+
     private void LeaveSwitch()
     {
         _breakControlBlocks.Pop();
@@ -1602,6 +1666,11 @@ public class ScriptCompiler
 
     private void InsertInstruction(VMInstructionBase inst)
     {
+        inst.Offset = (int)_currentPc;
+
+        if (_currentFunctionFrame is not null)
+            _currentFunctionFrame.CodeEndOffset = _currentPc;
+
         _code.Add(inst);
         _currentPc += (1 + (uint)inst.GetSize());
     }

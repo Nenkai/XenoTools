@@ -20,10 +20,12 @@ namespace XenoTools.CLI
     {
         private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
+        public const string Version = "0.2.0";
+
         static void Main(string[] args)
         {
             Console.WriteLine("-----------------------------------------");
-            Console.WriteLine($"- XenoTools by Nenkai");
+            Console.WriteLine($"- XenoTools {Version} by Nenkai");
             Console.WriteLine("-----------------------------------------");
             Console.WriteLine("- https://github.com/Nenkai");
             Console.WriteLine("-----------------------------------------");
@@ -122,15 +124,26 @@ namespace XenoTools.CLI
                     return;
                 }
 
-                var compiler = new ScriptCompiler(compileScriptVerbs.InputPath);
+                if (compileScriptVerbs.Release)
+                    Logger.Info("Compiling as release - debug information will be removed from the script");
+                
+                if (compileScriptVerbs.DebugPrintFunctions)
+                    Logger.Info("NOTE: Functions will have deb::put inserted");
+
+                var compiler = new ScriptCompiler(compileScriptVerbs.InputPath, 
+                    withDebugInformation: !compileScriptVerbs.Release,
+                    debugPrintFunctions: compileScriptVerbs.DebugPrintFunctions);
 
                 var state = compiler.Compile(program);
                 PrintCompiledState(state);
 
+                Logger.Info("Compiled, generating script file..");
                 using (var outp = new FileStream(compileScriptVerbs.OutputPath, FileMode.Create))
                 {
                     var gen = new ScriptCodeGen(state);
                     gen.Write(outp);
+
+                    Logger.Info($"Generated. File size: {outp.Position} bytes.");
                 }
 
                 Logger.Info($"Script build successful.");
@@ -157,7 +170,6 @@ namespace XenoTools.CLI
 
             Logger.Error("Script build failed.");
             Environment.ExitCode = -1;
-
         }
 
         public static void Disassemble(DisassembleScriptVerbs verbs)
@@ -172,7 +184,7 @@ namespace XenoTools.CLI
             var ogFile = File.ReadAllBytes(verbs.InputPath);
             var ogScript = new ScriptFile();
             ogScript.Read(ogFile);
-            ogScript.Disassemble(verbs.OutputPath);
+            ogScript.Disassemble(verbs.OutputPath, verbs.CompareMode);
 
             Environment.ExitCode = 0;
         }
@@ -216,6 +228,12 @@ namespace XenoTools.CLI
 
         [Option('b', "base-include-folder", Required = false, HelpText = "Set the root path for #include statements.")]
         public string BaseIncludeFolder { get; set; }
+
+        [Option("release", Required = false, HelpText = "Compiles as release - no debug information will be emitted to the script file.")]
+        public bool Release { get; set; }
+
+        [Option("debug-print-functions", Required = false, HelpText = "Inserts deb::put(<function>) name at the start of every function for debugging.")]
+        public bool DebugPrintFunctions { get; set; }
     }
 
     [Verb("script-disassemble", HelpText = "Disassembles a script file (.sb).")]
@@ -226,6 +244,9 @@ namespace XenoTools.CLI
 
         [Option('o', "output", Required = true, HelpText = "Output dissasembled file.")]
         public string OutputPath { get; set; }
+
+        [Option("compare-mode", HelpText = "Whether to use compare mode - removes offsets/source files from disassembly, useful for matching instructions.")]
+        public bool CompareMode { get; set; }
     }
 
     [Verb("bdat-to-sqlite", HelpText = "Export bdats to a SQLite files.")]

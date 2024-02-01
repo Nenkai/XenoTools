@@ -47,6 +47,9 @@ public class ScriptCodeGen
         WriteStaticPool(bs);
         WriteLocalPool(bs);
         WriteSystemAttributes(bs);
+
+        if (_compiledState.DebugInfo is not null)
+            WriteDebugInfo(bs);
     }
 
     private void WriteCode(BinaryStream bs)
@@ -402,6 +405,12 @@ public class ScriptCodeGen
                 {
                     bs.WriteSingle((float)var.Value);
                 }
+                else if (var.Type == LocalType.True || var.Type == LocalType.False || var.Type == LocalType.Nil)
+                {
+                    bs.WriteUInt32(0);
+                }
+                else
+                    throw new NotSupportedException();
 
                 // This is directly copied to the stack so there's an extra 4 bytes (64 bit ptr on switch)
                 bs.WriteUInt32(0);
@@ -443,9 +452,9 @@ public class ScriptCodeGen
             StackLocals stackLocals = _compiledState.LocalPool[i];
             bs.Position = lastOffset;
             bs.WriteUInt32(0x08);
-            bs.WriteUInt32((uint)stackLocals.NamedLocals.Count);
+            bs.WriteUInt32((uint)stackLocals.Locals.Count);
 
-            foreach (VmVariable var in stackLocals.NamedLocals.Values)
+            foreach (VmVariable var in stackLocals.Locals)
             {
                 bs.WriteByte((byte)var.Type);
                 bs.WriteByte(0);
@@ -499,4 +508,21 @@ public class ScriptCodeGen
         bs.Position = lastOffset;
         bs.Align(0x04, grow: true);
     }
+
+    private void WriteDebugInfo(BinaryStream bs)
+    {
+        long tableOffset = bs.Position;
+
+        _compiledState.DebugInfo.Write(bs);
+        int lastOffset = (int)bs.Position;
+
+        // Fill header
+        bs.Position = 0x3C;
+        bs.WriteUInt32((uint)tableOffset);
+
+        // Move to end.
+        bs.Position = lastOffset;
+        bs.Align(0x04, grow: true);
+    }
+
 }

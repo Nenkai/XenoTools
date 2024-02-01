@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using XenoTools.Script.Entities;
+using XenoTools.Script.Entities.Debugging;
 
 namespace XenoTools.Script.Compiler;
 
@@ -22,4 +23,5 @@ public class CompiledScriptState
     public Dictionary<string, ObjectConstructor> OCPool { get; init; }
     public List<object> FuncImports { get; init; }
     public List<SystemAttribute> SystemAttributes { get; init; }
+    public DebugInfo DebugInfo { get; init; }
 }

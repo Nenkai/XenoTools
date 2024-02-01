@@ -18,11 +18,6 @@ public class VmLoadArray : VMInstructionBase
 
     }
 
-    public VmLoadArray(byte stackIndex)
-    {
-
-    }
-
     public override void Read(ref SpanReader sr)
     {
 

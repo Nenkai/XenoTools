@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Syroot.BinaryData.Memory;
 
 using XenoTools.Script.Entities;
+using XenoTools.Script.Entities.Debugging;
 using XenoTools.Script.Instructions;
 
 namespace XenoTools.Script;
@@ -23,6 +24,7 @@ public class ScriptFile
     public List<string> StringPool { get; set; } = new();
     public List<FunctionInfo> Functions { get; set; } = new();
     public List<PluginImport> PluginImports { get; set; } = new();
+    public List<ObjectConstructor> OCImports { get; set; } = new();
 
     public DebugInfo DebugInfo { get; set; } = new();
 
@@ -43,6 +45,7 @@ public class ScriptFile
         ReadStringPool(ref sr);
         ReadFunctions(ref sr);
         ReadPluginImports(ref sr);
+        ReadOCImports(ref sr);
         ReadDebugSymbols(ref sr);
     }
 
@@ -183,6 +186,26 @@ public class ScriptFile
         }
     }
 
+    private void ReadOCImports(ref SpanReader sr)
+    {
+        sr.Position = (int)Header.OCImportsOfs;
+
+        uint offset = sr.ReadUInt32();
+        uint numEntries = sr.ReadUInt32();
+        uint entriesSize = sr.ReadUInt32();
+
+        sr.Position = (int)(Header.OCImportsOfs + offset);
+
+        for (int i = 0; i < numEntries; i++)
+        {
+            var oc = new ObjectConstructor();
+            oc.ID = i;
+            oc.NameID = sr.ReadInt16();
+
+            OCImports.Add(oc);
+        }
+    }
+
     private void ReadDebugSymbols(ref SpanReader sr)
     {
         if (Header.DebugSymsOfs == 0)
@@ -192,7 +215,7 @@ public class ScriptFile
         DebugInfo.Read(ref sr);
     }
 
-    public void Disassemble(string output)
+    public void Disassemble(string output, bool asCompareMode = false)
     {
         using var sw = new StreamWriter(output);
 
@@ -208,13 +231,13 @@ public class ScriptFile
             FunctionInfo func = Functions[i];
             sw.WriteLine($"{Identifiers[func.NameID]}:");
             sw.WriteLine($"- Num Locals: {func.NumLocals}, Num Arguments: {func.NumArguments}, Returns Value: {func.HasReturnValue}:");
-            DisassembleFunction(sw, i);
+            DisassembleFunction(sw, i, asCompareMode);
             sw.WriteLine(".endfunc");
             sw.WriteLine();
         }
     }
 
-    public void DisassembleFunction(StreamWriter sw, int idx)
+    public void DisassembleFunction(StreamWriter sw, int idx, bool asCompareMode = false)
     {
         var func = Functions[idx];
         Span<VMInstructionBase> insts = GetFunctionCode(func);
@@ -222,7 +245,7 @@ public class ScriptFile
         for (int i = 0; i < insts.Length; i++)
         {
             VMInstructionBase inst = insts[i];
-            if (false)
+            if (!asCompareMode)
             {
                 if (DebugInfo.Lines.TryGetValue(inst.Offset, out DebugInfo.LineInfo lineInfo))
                 {
@@ -231,7 +254,10 @@ public class ScriptFile
                 }
             }
 
-            sw.Write($"    " + inst.Type);
+            if (asCompareMode)
+                sw.Write($"    " + inst.Type);
+            else
+                sw.Write($"    {inst.Offset:X4}|" + inst.Type);
 
             switch (inst.Type)
             {
@@ -260,10 +286,16 @@ public class ScriptFile
                     sw.Write($": \"{StringPool[((VmPoolString_Word)inst).StringIndex]}\"");
                     break;
                 case VmInstType.LD:
-                    sw.Write($": {((VmLoad)inst).LocalIndex}");
+                    {
+                        var load = (VmLoad)inst;
+                        PrintLocal(sw, inst, idx, load.LocalIndex);
+                    }
                     break;
                 case VmInstType.ST:
-                    sw.Write($": {((VmStore)inst).LocalIndex}");
+                    {
+                        var store = (VmStore)inst;
+                        PrintLocal(sw, inst, idx, store.LocalIndex);
+                    }
                     break;
                 case VmInstType.LD_ARG:
                     sw.Write($": {((VmLoadArgument)inst).ArgumentIndex}");
@@ -272,17 +304,30 @@ public class ScriptFile
                     sw.Write($": {((VmStoreArgument)inst).ArgumentIndex}");
                     break;
                 case VmInstType.LD_STATIC:
-                    sw.Write($": {((VmLoadStatic)inst).StaticIndex}");
-
+                    {
+                        var loadStatic = ((VmLoadStatic)inst);
+                        PrintStatic(sw, loadStatic, loadStatic.StaticIndex);
+                    }
                     break;
                 case VmInstType.LD_STATIC_W:
+                    {
+                        var loadStatic = ((VmLoadStatic_Word)inst);
+                        PrintStatic(sw, loadStatic, loadStatic.StaticIndex);
+                    }
                     break;
                 case VmInstType.ST_STATIC:
+                    {
+                        var storeStatic = ((VmStoreStatic)inst);
+                        PrintStatic(sw, storeStatic, storeStatic.StaticIndex);
+                    }
                     break;
                 case VmInstType.ST_STATIC_W:
+                    {
+                        var storeStatic = ((VmStoreStatic_Word)inst);
+                        PrintStatic(sw, storeStatic, storeStatic.StaticIndex);
+                    }
                     break;
                 case VmInstType.LD_AR:
-                    break;
                 case VmInstType.ST_AR:
                     break;
                 case VmInstType.LD_FUNC:
@@ -294,13 +339,18 @@ public class ScriptFile
                 case VmInstType.LD_PLUGIN_W:
                     break;
                 case VmInstType.JMP:
-                    sw.Write($": {((VmJump)inst).JumpRelativeOffset}");
+                    if (asCompareMode)
+                        sw.Write($": {((VmJump)inst).JumpRelativeOffset}");
+                    else
+                        sw.Write($": {inst.Offset + ((VmJump)inst).JumpRelativeOffset:X4}");
                     break;
                 case VmInstType.JPF:
-                    sw.Write($": {((VmJumpFalse)inst).JumpRelativeOffset}");
+                    if (asCompareMode)
+                        sw.Write($": {((VmJumpFalse)inst).JumpRelativeOffset}");
+                    else
+                        sw.Write($": {inst.Offset + ((VmJumpFalse)inst).JumpRelativeOffset:X4}");
                     break;
                 case VmInstType.CALL:
-                    break;
                 case VmInstType.CALL_W:
                     break;
                 case VmInstType.PLUGIN:
@@ -318,20 +368,45 @@ public class ScriptFile
                     }
                     break;
                 case VmInstType.CALL_FAR:
-                    break;
                 case VmInstType.CALL_FAR_W:
                     break;
                 case VmInstType.GET_OC:
+                    {
+                        var getOc = (VmGetOC)inst;
+                        var oc = OCImports[getOc.OCIndex];
+                        sw.Write($": {Identifiers[oc.NameID]}");
+                    }
                     break;
                 case VmInstType.GET_OC_W:
+                    {
+                        var getOc = (VmGetOC_Word)inst;
+                        var oc = OCImports[getOc.OCIndex];
+                        sw.Write($": {Identifiers[oc.NameID]}");
+                    }
                     break;
                 case VmInstType.GETTER:
+                    {
+                        var getter = (VmGetter)inst;
+                        sw.Write($": {Identifiers[getter.IDIndex]}");
+                    }
                     break;
                 case VmInstType.GETTER_W:
+                    {
+                        var getter = (VmGetter_Word)inst;
+                        sw.Write($": {Identifiers[getter.IDIndex]}");
+                    }
                     break;
                 case VmInstType.SETTER:
+                    {
+                        var setter = (VmSetter)inst;
+                        sw.Write($": {Identifiers[setter.IDIndex]}");
+                    }
                     break;
                 case VmInstType.SETTER_W:
+                    {
+                        var setter = (VmSetter_Word)inst;
+                        sw.Write($": {Identifiers[setter.IDIndex]}");
+                    }
                     break;
                 case VmInstType.SEND:
                     sw.Write($": {Identifiers[((VmSend)inst).IDIndex]}");
@@ -340,12 +415,38 @@ public class ScriptFile
                     sw.Write($": {Identifiers[((VmSend_Word)inst).IDIndex]}");
                     break;
                 case VmInstType.SWITCH:
+                    sw.Write($": {string.Join(", ", ((VmSwitch)inst).Branches.Select(e => e.Case))}");
                     break;
                 default:
                     break;
             }
             sw.WriteLine();
         }
+    }
+
+    private void PrintStatic(StreamWriter sw, VMInstructionBase inst, int staticIndex)
+    {
+        if (DebugInfo?.StaticSyms?.ContainsKey(staticIndex) == true)
+        {
+            DebugInfoVariable debugSym = DebugInfo.StaticSyms[staticIndex];
+            string name = Identifiers[debugSym.NameID];
+            sw.Write($": {name}");
+        }
+        else
+            sw.Write($": (Index: {staticIndex}");
+    }
+
+    private void PrintLocal(StreamWriter sw, VMInstructionBase inst, int funcIdx, int localIdx)
+    {
+        var local = DebugInfo?.FunctionLocalSymbols?[funcIdx].Locals?[localIdx];
+
+        if (local is not null)
+        {
+            string name = Identifiers[local.NameID];
+            sw.Write($": {name}");
+        }
+        else
+            sw.Write($": (Index: {local}");
     }
 
     private Span<VMInstructionBase> GetFunctionCode(FunctionInfo func)
